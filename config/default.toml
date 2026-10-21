@@ -1,0 +1,50 @@
+# 鱼片加工厂 · 默认配置
+#
+# 本文件进 git，只放与机器无关的默认值。
+# 本机绝对路径（素材根目录等）写在 config/local.toml —— 那个文件不进 git。
+
+[comfy]
+# ComfyUI 服务地址。工作台不负责启动 ComfyUI，只做连通性检测。
+host = "127.0.0.1"
+port = 8188
+# 单次任务的等待上限（秒）
+timeout = 600
+
+[paths]
+# 素材根目录列表（只读引用：不复制、不修改、不移动）
+# 本机实际值写在 config/local.toml
+asset_roots = []
+# 生成产物目录（相对仓库根，或绝对路径）
+output_dir = "output"
+# 素材索引落盘位置（不进 git）
+asset_index = "assets/index.local.json"
+
+[workflows]
+# 默认工作流，相对 workflows/ 目录
+# 注意：参数按节点的 _meta.title 注入，不按节点 ID（见 docs/design.md §6.3）
+default = "fish-txt2img.json"
+img2img = "fish-img2img.json"
+
+[generate]
+count = 4               # 一次生成几张
+steps = 50              # Klein base 版 50 步；distilled 版用 4 步
+cfg = 3.5
+width = 1024
+height = 1024
+denoise = 0.55          # 仅 img2img 生效；>0.65 丢形象，<0.35 改不动表情
+
+# 固定的提示词骨架：把"这一只鲸鱼娘"的角色特征固化在这里
+prompt_prefix = ""
+negative = ""
+
+[postprocess]
+# 加字用的中文字体（系统已装 Noto Sans CJK 系列）
+font = "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc"
+font_size = 64
+stroke_width = 4
+stroke_color = "#FFFFFF"
+
+[server]
+# GUI（M5 阶段）
+host = "127.0.0.1"
+port = 8765

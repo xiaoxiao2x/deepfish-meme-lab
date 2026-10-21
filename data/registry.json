@@ -1,0 +1,6 @@
+{
+  "_comment": "配方库：只记定稿条目（去背后 / 加字后 / 手工标记保留的）。全量记录在 output/<日期>/registry.local.json，不进 git。字段说明见 docs/design.md §6.2。",
+  "version": 1,
+  "updatedAt": "2026-10-22T00:31:00+08:00",
+  "items": []
+}
