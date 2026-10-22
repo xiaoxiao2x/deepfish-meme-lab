@@ -30,10 +30,16 @@ def dead_port() -> int:
         return probe.getsockname()[1]
 
 
-def client(engine: StubEngine, **kwargs) -> EngineClient:
-    settings = {"poll_interval": 0.01, "max_polls": 50}
-    settings.update(kwargs)
-    return EngineClient(engine.host, engine.port, **settings)
+def client(
+    engine: StubEngine, *, max_polls: int = 50, poll_interval: float = 0.01
+) -> EngineClient:
+    """测试用的客户端：轮询快、放弃早，免得把测试拖成秒级。"""
+    return EngineClient(
+        engine.host,
+        engine.port,
+        poll_interval=poll_interval,
+        max_polls=max_polls,
+    )
 
 
 # ---------- 提交 ----------

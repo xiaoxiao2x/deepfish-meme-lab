@@ -389,3 +389,31 @@ def test_cli_without_arguments_prints_usage(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 2
     assert "doctor" in out
+
+
+def test_doctor_runs_on_a_machine_without_pillow(tmp_path, capsys, monkeypatch):
+    """体检不该需要 Pillow —— 换一台没装它的机器，`lab doctor` 也得起得来。
+
+    `lab/assets.py` 要 Pillow，所以素材命令是在 `_run_assets` 里才 import 它的。
+    这条测试把 PIL 从 import 系统里摘掉、并把 lab.* 从模块缓存里清空重来，
+    任何挂在顶层的三方依赖都会在这里现形。
+    """
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name == "PIL" or name.startswith("PIL."):
+            raise ImportError("这条测试假装这台机器没装 Pillow")
+        return real_import(name, *args, **kwargs)
+
+    for module in [m for m in sys.modules if m.startswith("lab.")]:
+        monkeypatch.delitem(sys.modules, module, raising=False)
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    make_config(tmp_path, port=dead_port())
+
+    rc = main(["doctor"], repo_root=tmp_path)  # 引擎没起，但绝不该是 ImportError
+
+    assert rc in (0, 1)
+    assert "Pillow" not in capsys.readouterr().out

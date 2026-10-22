@@ -9,15 +9,19 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from lab.assets import (
+    StaleIndex,
     build_index,
     load_index,
     mean_absolute_error,
+    missing_from_disk,
     save_index,
 )
 from lab.cli import main
+from lab.config import load_config
 
 REPO_DEFAULT_TOML = (
     Path(__file__).resolve().parent.parent / "config" / "default.toml"
@@ -256,7 +260,8 @@ def test_assets_scan_writes_an_index_and_reports_the_count(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "2 张" in out
-    assert (repo / "assets" / "index.local.json").exists()
+    # 落点从配置读，别把 paths.asset_index 抄第二份 —— 抄了就会跟配置漂
+    assert load_config(repo).paths.asset_index.exists()
 
 
 def test_assets_scan_exits_nonzero_when_a_root_is_missing(tmp_path, capsys):
@@ -299,3 +304,108 @@ def test_assets_without_an_action_prints_usage(tmp_path, capsys):
 
     assert code == 2
     assert "scan" in capsys.readouterr().err
+
+
+def test_assets_scan_reports_unique_and_duplicated_counts(tmp_path, capsys):
+    """不重复清单是去重的另一半：光报重复组，人不知道还剩多少能用。"""
+    root = pool(tmp_path)
+    solid(root / "a.png")
+    solid(root / "b.png")  # 与 a 同字节
+    half(root / "c.png", dark=0)  # 独立一张
+    repo = make_repo(tmp_path, root)
+
+    code = main(["assets", "scan"], repo_root=repo)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "不重复" in out
+    assert "1 张 · 重复涉及 2 张" in out
+
+
+def test_assets_scan_with_no_roots_configured_is_not_a_pass(tmp_path, capsys):
+    """没配素材根目录是「没查」，不是「查了没问题」。"""
+    repo = make_repo(tmp_path)
+
+    code = main(["assets", "scan"], repo_root=repo)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "asset_roots" in out
+
+
+def test_assets_scan_verify_readonly_passes_on_a_quiet_pool(tmp_path, capsys):
+    root = pool(tmp_path)
+    solid(root / "a.png")
+    repo = make_repo(tmp_path, root)
+
+    code = main(["assets", "scan", "--verify-readonly"], repo_root=repo)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "被改动过" not in out
+
+
+def test_assets_dupes_tells_you_when_the_index_is_stale(tmp_path, capsys):
+    """素材挪走之后，旧索引只会打印一堆失效路径 —— 得说清楚该重扫。"""
+    root = pool(tmp_path)
+    solid(root / "a.png")
+    repo = make_repo(tmp_path, root)
+    main(["assets", "scan"], repo_root=repo)
+    capsys.readouterr()
+    shutil.move(str(root), str(tmp_path / "moved-away"))
+
+    code = main(["assets", "dupes"], repo_root=repo)
+
+    assert code == 1
+    assert "过期" in capsys.readouterr().err
+
+
+def test_assets_dupes_tells_you_when_the_index_file_is_broken(tmp_path, capsys):
+    repo = make_repo(tmp_path)
+    index = load_config(repo).paths.asset_index
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text('{"version": 1, "roots"', encoding="utf-8")
+
+    code = main(["assets", "dupes"], repo_root=repo)
+
+    assert code == 2
+    assert "重跑" in capsys.readouterr().err
+
+
+def test_stale_index_version_is_rejected(tmp_path):
+    path = tmp_path / "index.local.json"
+    path.write_text(
+        '{"version": 99, "builtAt": "", "roots": [], "problems": [],'
+        ' "duplicates": [], "assets": []}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(StaleIndex):
+        load_index(path)
+
+
+def test_missing_from_disk_names_the_files_that_moved(tmp_path):
+    root = pool(tmp_path)
+    solid(root / "a.png")
+    index = build_index([root])
+    (root / "a.png").unlink()
+
+    assert [Path(p).name for p in missing_from_disk(index)] == ["a.png"]
+
+
+def test_brightness_mismatch_lands_in_suspects(tmp_path):
+    """dhash 像、MAE 落在中间档：不下结论，但也不该悄悄丢掉。
+
+    纯色图最干净：相邻两列永远一样，所以 dhash 必为 0、必然互为候选；
+    而只差 12 阶灰度的两张图，MAE 稳稳落在 6–14 那一档。
+    """
+    root = pool(tmp_path)
+    solid(root / "grey.png", color=(135, 135, 135))
+    solid(root / "lighter.png", color=(147, 147, 147))
+
+    index = build_index([root])
+
+    assert index.duplicate_paths == frozenset()  # 不算「重复」
+    (suspect,) = index.suspects  # 但也没被扔掉
+    assert suspect.mae is not None
+    assert 6 <= suspect.mae < 14

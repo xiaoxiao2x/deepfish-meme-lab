@@ -18,8 +18,6 @@ from types import TracebackType
 from typing import Self
 from urllib.parse import parse_qs, urlparse
 
-from PIL import Image
-
 __all__ = ["STUB_FILENAME", "StubEngine", "default_image"]
 
 STUB_FILENAME = "fish-stub_00001_.png"
@@ -49,6 +47,8 @@ REJECTION = {
 
 def default_image() -> bytes:
     """一张真 PNG，够用来验「取回文件」这一段。"""
+    from PIL import Image
+
     buffer = BytesIO()
     Image.new("RGB", (64, 64), (30, 120, 220)).save(buffer, format="PNG")
     return buffer.getvalue()

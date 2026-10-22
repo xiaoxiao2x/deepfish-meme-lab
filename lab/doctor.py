@@ -14,24 +14,24 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from .comfy import EngineClient, EngineError, EngineUnreachable
 from .config import Config
+from .paths import iter_image_files
 
 __all__ = ["CheckResult", "Status", "has_failures", "is_ready", "run_doctor"]
-
-IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
 # 权重体积下限的宽容度。标称值本身是四舍五入过的，所以不能卡死；
 # 代价是「下到 96% 断掉」这种半截抓不出来 —— 要精确判断得配 sha256，那是以后的事。
 SIZE_TOLERANCE = 0.95
 GB = 1000**3
+
+# EngineClient 在引擎回的东西认不出来时给的字面值
+UNKNOWN_VERSION = "未知"
 
 
 class Status(Enum):
@@ -71,42 +71,33 @@ def _engine_root(cfg: Config, key: str, label: str) -> tuple[Path | None, CheckR
     return root, None
 
 
-def _engine_get(cfg: Config, path: str) -> bytes:
-    """向引擎要一个只读端点。
-
-    超时用 comfy.probe_timeout，不是任务级的 comfy.timeout —— 体检不该等十分钟。
-    #6 把 comfy.py 建起来之后，这个函数应当并进那边的客户端，别留两个 HTTP 调用点。
-    """
-    url = f"{cfg.comfy.endpoint}{path}"
-    with urllib.request.urlopen(url, timeout=cfg.comfy.probe_timeout) as response:
-        return response.read()
-
-
 # ── 引擎 ──────────────────────────────────────────────────────────────
 
 
 def check_engine(cfg: Config) -> CheckResult:
     key, label = "engine", "引擎连通"
     where = f"{cfg.comfy.host}:{cfg.comfy.port}"
+    # 用任务级的客户端，超时换成 probe_timeout —— 体检不该等十分钟
+    client = EngineClient(
+        host=cfg.comfy.host, port=cfg.comfy.port, timeout=cfg.comfy.probe_timeout
+    )
 
     try:
-        raw = _engine_get(cfg, "/system_stats")
-    except urllib.error.HTTPError as exc:
-        return CheckResult(
-            key, label, Status.FAIL,
-            f"{where} 上有服务，但它对 /system_stats 回了 {exc.code}"
-            f" —— 端口也许被别的程序占着",
-        )
-    except (urllib.error.URLError, OSError, TimeoutError):
+        version = client.version()
+    except EngineUnreachable:
         return CheckResult(
             key, label, Status.FAIL,
             f"连不上 {where} —— 请先启动 ComfyUI"
             f"（conda activate comfyui && python main.py）",
         )
+    except EngineError as exc:
+        return CheckResult(
+            key, label, Status.FAIL,
+            f"{where} 上有服务，但它对 /system_stats 回了：{exc}"
+            f" —— 端口也许被别的程序占着",
+        )
 
-    try:
-        version = json.loads(raw.decode("utf-8"))["system"]["comfyui_version"]
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+    if version == UNKNOWN_VERSION:
         return CheckResult(
             key, label, Status.FAIL,
             f"{where} 上有服务，但它对 /system_stats 的回应不像 ComfyUI",
@@ -196,12 +187,8 @@ def check_assets(cfg: Config) -> CheckResult:
     if missing:
         return CheckResult(key, label, Status.FAIL, "这些路径不存在：" + "、".join(missing))
 
-    count = sum(
-        1
-        for path in roots
-        for item in path.rglob("*")
-        if item.is_file() and item.suffix.lower() in IMAGE_SUFFIXES
-    )
+    # 用素材层那同一张后缀表与排除规则 —— 两份清单迟早一边加、一边忘
+    count = sum(1 for root in roots for _ in iter_image_files(root))
     return CheckResult(key, label, Status.OK, f"{len(roots)} 个根目录可达，共 {count} 张图")
 
 
