@@ -3,6 +3,7 @@
     python -m lab doctor          检查环境齐不齐
     python -m lab assets scan     扫描素材，写索引，报张数与重复
     python -m lab assets dupes    按索引列出重复组
+    python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
 退出码：0 = 全绿能干活；1 = 有 FAIL、有没查成的项、或有问题要处理；2 = 命令本身
 用错了（参数不对、配置读不出来）。WARN 不算通过 —— 「没配所以没查」和「查了没
@@ -13,12 +14,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
 from .assets import Index, build_index, load_index, save_index
 from .config import Config, ConfigError, load_config
 from .doctor import Status, is_ready, run_doctor
+from .stub import StubEngine
 
 __all__ = ["main"]
 
@@ -119,6 +122,22 @@ def _run_assets(config: Config, action: str | None) -> int:
     return 1 if index.problems else 0
 
 
+def _run_stub(config: Config) -> int:
+    """起假引擎。没有显卡、权重还没下完的时候，靠它把工作台这一段走通。"""
+    engine = StubEngine(host=config.comfy.host, port=config.comfy.port).start()
+    print(f"假引擎已起：http://{engine.host}:{engine.port}")
+    print("它不假装懂工作流 —— 收到什么 prompt 都收下，然后报「完成」并回一张小图。")
+    print("Ctrl-C 停。")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        engine.stop()
+    return 0
+
+
 def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="lab",
@@ -131,6 +150,8 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
     assets_sub = assets_parser.add_subparsers(dest="assets_action")
     assets_sub.add_parser("scan", help="扫描素材根目录，写索引并报告")
     assets_sub.add_parser("dupes", help="按已有索引列出重复组")
+
+    subparsers.add_parser("stub", help="起一个假引擎（无显卡也能端到端调试）")
 
     args = parser.parse_args(argv)
 
@@ -152,5 +173,8 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     if args.command == "assets":
         return _run_assets(config, args.assets_action)
+
+    if args.command == "stub":
+        return _run_stub(config)
 
     return 2
