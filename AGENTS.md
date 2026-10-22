@@ -9,7 +9,7 @@
 | [docs/design.md](docs/design.md) | 是什么、不做什么、架构、技术选型、数据格式、GUI 大致设计 |
 | [docs/roadmap.md](docs/roadmap.md) | 先做什么、做到什么程度算成、已知的坑 |
 
-硬约束（详见 design.md §3.2「非目标」）：不做网站、不训 LoRA、不做多用户、不接在线生图 API。素材（803 张，其中 415 张挂在素材池）与生成成品不进仓库，仓库只留 `workflows/` 与 `data/registry.json`。
+硬约束（详见 design.md §3.2「非目标」）：不做网站、不训 LoRA、不做多用户、不接在线生图 API。素材（两个来源共 803 张，入池 415 张）与生成成品不进仓库，仓库只留 `workflows/` 与 `data/registry.json`。
 
 ## Agent skills
 

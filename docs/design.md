@@ -60,7 +60,7 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 | 网站 / 备案子域 / R2 / 云服务器 | "先做成 PC 上的应用，暂时不考虑网站"。将来若要共享，成品可走 deepWhale 站既有链路（R2 + 已备案域），**但本期不实现、不设计、不预留接口** |
 | 调用在线生图 API | 无 API key；且本地 16G 卡够用，离线更省心 |
 | **LoRA 训练** | **属于作者自己的准备事项，不进本工作台主线**。工作台只负责"能加载你训好的 LoRA"，不负责训、不管理训练数据集、不写训练脚本 |
-| 素材采集 | 803 张起步够用；夸克采集脚本现成，需要时另行执行 |
+| 素材采集 | 两个来源共 803 张，入池 415 张起步够用；夸克采集脚本现成，需要时另行执行 |
 | 多用户 / 账号 / 权限 | 单人自用 |
 | 上架发布流程 | 属于 deepWhale-MemeHub 的职责 |
 | 商业授权 / 版权登记 | 沿用非商业二创立场，不做商业化配套 |
@@ -81,7 +81,7 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
         │                                          │
         │  assets.py      素材索引（415 张，只读引用）│
         │  workflows.py   工作流模板加载 + 参数注入   │
-        │  comfy.py       调 ComfyUI HTTP/WS API     │
+        │  comfy.py       调 ComfyUI HTTP API        │
         │  postprocess.py Pillow 去背 / 加字 / 缩放   │
         │  registry.py    登记册读写                  │
         │  cli.py         命令行入口                  │
@@ -99,9 +99,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 
 **分层职责**：
 
-- **素材层**（`assets.py`）：只读扫描素材根目录，产出索引（路径 / 尺寸 / 是否动图 / 内容哈希）。**不复制、不移动、不修改素材原始文件**。
+- **素材层**（`assets.py`）：只读扫描素材根目录，产出索引（路径 / 尺寸 / 是否动图 / 内容哈希）与重复组（sha1 → 9×8 dhash → 128×128 灰度 MAE 三级收敛）。**不复制、不移动、不修改素材原始文件**。
 - **工作流层**（`workflows.py`）：加载 `workflows/*.json`（ComfyUI **API 格式**，不是 UI 格式），把业务参数映射到节点输入，产出可提交的 prompt 图。
-- **引擎层**（`comfy.py`）：`POST /prompt` 提交、`GET /history/{id}` 取结果、`WS /ws` 订阅进度；负责排队、超时、错误还原。**不启动 ComfyUI 进程**（假设它已在运行，见 §10）。
+- **引擎层**（`comfy.py`）：`POST /prompt` 提交、`GET /history/{id}` 轮询到完成、按 `/view` 取回文件；负责排队、超时、错误还原。**不启动 ComfyUI 进程**（假设它已在运行，见 §10）。进度订阅（WS `/ws`）留到真需要实时性的那天——轮询够用，也更好排队。
 - **后处理层**（`postprocess.py`）：Pillow 做去背合成 / 加字 / 缩放 / 命名。去背的模型推理在 ComfyUI 里做（RMBG 节点），本层只做拼装。
 - **登记层**（`registry.py`）：写 `output/…/registry.local.json`（全量）与 `data/registry.json`（定稿配方），见 §6。
 - **表现层**（第二阶段）：FastAPI + 模板。
@@ -116,13 +116,13 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 |---|---|---|
 | 语言 | **Python 3**（全栈） | 与 ComfyUI、训练、Pillow 同栈；作者已定"彻底统一到 Python" |
 | 引擎 | **本地 ComfyUI**（`/home/xiao/workspace/comfyUI/ComfyUI`，conda env `comfyui`） | 已有环境，`127.0.0.1:8188` |
-| 引擎接口 | **HTTP API + WebSocket**（不写自定义节点） | 与 ComfyUI 版本解耦；工作流存成 JSON 可版本控制；不改 ComfyUI 本体 |
+| 引擎接口 | **HTTP API**（不写自定义节点）；进度先用轮询，WS 留作以后 | 与 ComfyUI 版本解耦；工作流存成 JSON 可版本控制；不改 ComfyUI 本体 |
 | 图像处理 | **Pillow** | 已装（12.1.1）；去背由 ComfyUI-RMBG 节点做，Pillow 只拼装 |
 | 视频/GIF | **ffmpeg**（子进程调用） | 已装 8.0.1；GIF 调色板两遍法用 Pillow 做不好 |
 | Web 框架 | **FastAPI**（第二阶段） | 全 Python；自带异步与 SSE，适合转发生成进度 |
 | 前端 | **Jinja2 模板 + htmx + 少量原生 JS，零构建步骤** | 自用工具，不引入 Node 构建链（这是"全 Python"决定的自然延伸）；界面复杂度若将来超过阈值再议 |
 | 配置 | **TOML**（`config/default.toml` 进 git，`config/local.toml` 不进） | 本机绝对路径不进仓库 |
-| 依赖管理 | **零运行时依赖**；`pyproject.toml` 只声明 Python ≥3.11 与 pytest 的 `pythonpath`/`testpaths` | 极简；不引 Poetry/uv，也不打包发版——工作台从仓库根直接跑 |
+| 依赖管理 | 运行时只依赖 **Pillow**（读图与后处理）；`lab doctor` 不碰它，纯标准库。`pyproject.toml` 只声明依赖与 pytest 路径 | 极简；不引 Poetry/uv，也不打包发版——工作台从仓库根直接跑 |
 
 **为什么参考而不复用 deepWhale-MemeHub 的 `.cjs` 工具**：那套工具（`build-variants.cjs` / `dedupe.cjs`）的行为已经被读懂并作为规范参考，但技术栈不同（Node），直接复用会破坏"全 Python"的决策。去重环节**改用大肥鱼目录里现成的 Python 脚本**（`find_dupes.py` / `dupes_perceptual.py` / `verify_dupes.py`），净损失接近零。
 
@@ -191,7 +191,7 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 
 ### 6.4 素材索引
 
-`assets.py` 扫描素材根目录生成的索引**不进 git**（作者已定：素材引用清单不入库）。索引落在 `assets/index.local.json`，与素材同处，本机有效。
+`assets.py` 扫描素材根目录生成的索引**不进 git**（作者已定：素材引用清单不入库）。索引落在**仓库内**的 `assets/index.local.json`（由 `.gitignore` 排除），本机有效——素材在 `/home/xiao/图片` 与 `~/workspace/www`，索引在仓库里，两者不同处。
 
 ---
 
@@ -207,28 +207,30 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 
 - `deepWhale-MemeHub/stickers/` 的 **383 张**是**已进站的成品**，只作风格与构图参考，**不作为底图素材**（它们是别人的成品，不是原始素材）。其中 **100 张动图**对理解"表情包该长什么样"有特殊价值。
 - 大肥鱼目录下的 `重复检查/`（13 张比对拼图）与 `.Trash-0/`（2 张）是流程产物，**不是素材**，索引时要排除。
-- **素材池当前挂载 415 张**：大肥鱼 217 + 素材库 `media/` 的 198，写在 `config/local.toml` 的 `paths.asset_roots` 里。素材库剩下的 388 张是 `large/` 与 `previews/` 的派生图，不作底图，所以不进池——**803 是「两个来源的总量」，415 是「工作台实际能挑的」**，两个数都会在体检报告里出现，别混。
+- **素材池当前挂载 415 张**：大肥鱼 217 + 素材库 `media/` 的 198，写在 `config/local.toml` 的 `paths.asset_roots` 里。素材库剩下的 388 张是 `large/` 与 `previews/` 的派生图，不作底图，所以不进池——**803 是「两个来源的总量」，415 是「工作台实际能挑的」**；体检与索引报的都是后者，别拿 803 去对它们。
 
 ### 7.2 三条铁律
 
 1. **引用不复制**：工作台只在索引里存路径，不把素材拷进 `assets/`。素材原地不动，你的文件管理器视图不被打乱。
-2. **素材不进 git**：803 张约 1GB，且版权归属不在本仓库，`assets/` 与索引全部排除。
+2. **素材不进 git**：素材约 1 GB，且版权归属不在本仓库，`assets/` 与索引全部排除。
 3. **不修改素材**：任何清洗（去重、转格式）的产物另存，原文件只读。
 
 ### 7.3 合并去重
 
-803 张来自两个独立来源，必然有重叠。用大肥鱼目录里已经写好并验证过的三级脚本做一次清洗：
+两个来源共 803 张，必然有重叠。去重的三级收敛实现在 `lab/assets.py` 里；那三个现成脚本（`find_dupes.py` / `dupes_perceptual.py` / `verify_dupes.py`）是**阈值来源**，不再被调用——理由见 ADR-0005。
 
 ```bash
-# 1) 精确哈希去重 + 感知哈希初筛
-python /home/xiao/图片/deepseek大肥鱼表情包/find_dupes.py
-# 2) dhash 9x8 汉明距离筛近似图
-python /home/xiao/图片/deepseek大肥鱼表情包/dupes_perceptual.py
-# 3) 128x128 灰度 MAE < 6 判定同图（收口，避免误杀）
-python /home/xiao/图片/deepseek大肥鱼表情包/verify_dupes.py
+python3 -m lab assets scan   # 扫素材、写索引、报张数与重复组
+python3 -m lab assets dupes  # 按索引列出重复组明细
 ```
 
-产出：一份清洗后的索引（本机），供工作台读取。**清洗是第一阶段的任务，不阻塞出图**——没有它也能出图，只是挑底图时会撞见重复。
+| 级别 | 判据 | 阈值来源 |
+|---|---|---|
+| 1 精确哈希 | sha1 字节一致 | `find_dupes.py` |
+| 2 感知哈希 | 9×8 dhash 汉明距离 ≤ 4 | `dupes_perceptual.py` |
+| 3 灰度比对 | 128×128 MAE：< 6 同一张 / 6–14 疑似 / ≥ 14 不同 | `verify_dupes.py` |
+
+产出：本机索引（`assets/index.local.json`，不进 git），含 415 张素材、重复组与疑似组。**只报告，不删素材**——留哪张由人定。**去重不阻塞出图**：没有它也能出片，只是挑底图时会撞见重复。
 
 ---
 
@@ -259,14 +261,14 @@ python /home/xiao/图片/deepseek大肥鱼表情包/verify_dupes.py
 - **后端**：FastAPI（同一进程内直接 import `lab/`，不另起 API 层）
 - **前端**：Jinja2 模板 + htmx（局部刷新）+ 少量原生 JS（进度条）
 - **零构建步骤**：没有 npm、没有打包器、没有 `node_modules`。改完 HTML 刷新浏览器即可
-- **生成进度**：后端订阅 ComfyUI 的 `WS /ws`，再用 **SSE** 推给浏览器（图出到第几张、当前第几步）
+- **生成进度**：后端轮询 ComfyUI 的 `/history/{id}`，再用 **SSE** 推给浏览器（图出到第几张、当前第几步）
 
 ### 9.2 信息架构
 
 ```
 鱼片加工厂
 ├── 出片台  Generate     ← 主页面，90% 时间在这
-├── 素材库  Assets        ← 803 张素材，挑底图
+├── 素材库  Assets        ← 415 张素材池，挑底图
 ├── 成品库  Gallery       ← 历史成品 + 配方库
 └── 设置    Settings      ← ComfyUI 地址、工作流、路径
 ```
@@ -336,7 +338,7 @@ python /home/xiao/图片/deepseek大肥鱼表情包/verify_dupes.py
 | ComfyUI 代码 | `/home/xiao/workspace/comfyUI/ComfyUI`（168 MB，纯代码） |
 | ComfyUI 运行时 | conda env `/home/xiao/miniconda3/envs/comfyui`，torch 2.12.0+cu130，`cuda.is_available() = True` |
 | **生图权重** | **零**（`models/` 26 个子目录全空；全盘那 4 个 `.safetensors` 是 MinerU 与 compressed_tensors 的测试文件，与生图无关） |
-| **custom_nodes** | **无第三方节点**（只有 `example_node.py.example` 与 `websocket_image_save.py`） |
+| **custom_nodes** | 已装 ComfyUI-Manager、ComfyUI-RMBG、ComfyUI-KJNodes（见 #3） |
 | 服务状态 | 8188 未监听（ComfyUI 未运行） |
 | 启动方式 | `conda activate comfyui` → `python main.py` → `127.0.0.1:8188`（见 `/home/xiao/workspace/comfyUI/记录.md`） |
 | 工具链 | ffmpeg 8.0.1、ImageMagick 7.1.2、Python + Pillow 12.1.1、Node v24.16.0、pnpm 11.28.5 |
@@ -409,9 +411,9 @@ deepfish-meme-lab/
 │   ├── default.toml           ← 进 git
 │   └── local.toml             ← 不进 git（本机绝对路径）
 ├── scripts/                   ← 一次性脚本（干净来、干净走）
-├── assets/                    ← 不进 git：素材索引 + 指向 803 张原图的引用
+├── assets/                    ← 不进 git：素材索引（指向 415 张素材池）
 ├── output/                    ← 不进 git：成品 + 完整记录
-├── pyproject.toml             ← 只声明 Python 版本下限与 pytest 路径，不打包
+├── pyproject.toml             ← 声明依赖、Python 版本下限与 pytest 路径，不打包
 ├── GLOSSARY.md                ← 术语表
 └── .gitignore
 ```

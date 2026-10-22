@@ -18,14 +18,17 @@
 python3 -m lab doctor        # 体检：引擎、权重、节点、素材、输出目录
 python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
 python3 -m lab assets dupes  # 按索引列出重复组
+python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通
 ```
 
 三方依赖只有一个 **Pillow**（读图算哈希用）；`lab doctor` 连它都不碰，纯标准库。
 系统的 `python3` 直接跑（`tomllib` 要 3.11+）。
 
-跑测试需要 pytest（装在 `.venv` 里）：
+跑测试需要 pytest 与 Pillow（装在 `.venv` 里）：
 
 ```bash
+python3 -m venv .venv
+.venv/bin/pip install pytest Pillow        # 静态检查可选：ruff mypy
 .venv/bin/python -m pytest
 ```
 

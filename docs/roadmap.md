@@ -100,12 +100,14 @@ lab/
 ├── config.py       读 config/default.toml + local.toml，深合并
 ├── doctor.py       环境体检（五项检查，只读为主）
 ├── cli.py          命令行入口
+├── paths.py        素材后缀表与排除规则（零依赖，体检与索引共用）
 ├── assets.py       素材扫描与索引（只读引用）
-├── comfy.py        ComfyUI HTTP/WS 客户端
+├── comfy.py        ComfyUI HTTP 客户端（提交 / 轮询 / 取回）
+├── stub.py         假引擎（无显卡也能端到端调试）
 └── workflows.py    模板加载 + 参数注入
 ```
 
-（`config.py`、`doctor.py`、`cli.py`、`assets.py` 已落地 —— 见 §2 的「先做哪一件」与 #5、#13；`comfy.py` 按 #6、`workflows.py` 按 #7 落地。）
+（`config.py`、`doctor.py`、`cli.py`、`paths.py`、`assets.py`、`comfy.py`、`stub.py` 已落地 —— 见 #5、#13、#6；`workflows.py` 与 `postprocess.py` 按 #7 落地，`registry.py` 按 #11。）
 
 **3) `lab doctor`：环境体检**
 
@@ -193,7 +195,7 @@ python -m lab reproduce fish-001     # 用配方重跑，验证可复现性
 | M5.1 | FastAPI 骨架 + 四个页面路由（出片台 / 素材库 / 成品库 / 设置）+ 静态资源 |
 | M5.2 | **出片台**：参数面板 + 结果网格 + 生成进度（SSE）—— 这是 90% 的价值所在，先做 |
 | M5.3 | **成品库**：读配方库 + 缩略图 + "用同参数重跑" |
-| M5.4 | **素材库**：803 张瀑布流 + 筛选 + "送去出片台" |
+| M5.4 | **素材库**：415 张瀑布流 + 筛选 + "送去出片台" |
 | M5.5 | **设置**：ComfyUI 地址与连接测试、工作流选择、路径配置 |
 
 ### 完成标志
