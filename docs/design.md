@@ -174,20 +174,24 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 
 ### 6.3 工作流模板与参数注入
 
-`workflows/*.json` 使用 **ComfyUI API 格式**（`/prompt` 接口接受的结构），形如：
+`workflows/*.json` 使用 **ComfyUI API 格式**（`/prompt` 接口接受的结构）——每个节点一张卡片，靠节点 ID 互相引用：
 
 ```jsonc
 {
-  "6":  { "class_type": "CLIPTextEncode", "_meta": { "title": "PROMPT" }, "inputs": { "text": "" } },
-  "7":  { "class_type": "KSampler",       "_meta": { "title": "SAMPLER" },
-          "inputs": { "seed": 0, "steps": 50, "cfg": 3.5, "denoise": 1.0 } },
-  "10": { "class_type": "LoadImage",      "_meta": { "title": "SOURCE_IMAGE" }, "inputs": { "image": "" } }
+  "4":  { "class_type": "CLIPTextEncode", "_meta": { "title": "提示词" },
+          "inputs": { "clip": ["2", 0], "text": "" } },
+  "7":  { "class_type": "Flux2Scheduler", "_meta": { "title": "步数" },
+          "inputs": { "steps": 20, "width": 1024, "height": 1024 } },
+  "10": { "class_type": "RandomNoise",    "_meta": { "title": "种子" },
+          "inputs": { "noise_seed": 0 } }
 }
 ```
 
-**参数注入方式：按 `_meta.title` 查找节点，不按节点 ID。** 这是刻意的设计——节点 ID 会在你重排工作流时变化，标题不会。约定标题集合：`PROMPT` / `NEGATIVE` / `SAMPLER` / `SEED` / `STEPS` / `SOURCE_IMAGE` / `OUTPUT`。
+**参数注入方式：按 `_meta.title` 查找节点，不按节点 ID。** 这是刻意的设计——节点 ID 会在你重排工作流时变化，标题不会。约定标题集合：`提示词` / `负面词` / `采样器` / `种子` / `步数` / `尺寸` / `底图` / `输出`。
 
-**取工作流的方式**：在 ComfyUI 界面调好 → "导出（API 格式）" → 手工给关键节点写 `_meta.title` → 存进 `workflows/`。这一步必须手工做一次，不能省。
+**工作流怎么来**：直接**手写** API 格式 JSON（`workflows/fish-txt2img.json` 就是这么来的，13 个节点、链路线性），写完用 `lab.comfy` 的客户端提交验证。只有手写被引擎拒绝（节点类名或参数结构记错）时，才去界面拉一个官方模板导出对照——界面不是必经工序。
+
+标题写错一个字，注入就会静默失效，所以 `tests/test_workflows.py` 把必需标题钉死。
 
 ### 6.4 素材索引
 

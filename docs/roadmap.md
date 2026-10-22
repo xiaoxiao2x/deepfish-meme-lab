@@ -82,16 +82,24 @@ python main.py          # → 127.0.0.1:8188
 
 ### 做什么
 
-**1) 手工搭两个工作流**（必须手工做一次，不能省）
+**1) 写两个工作流模板**
 
-在 ComfyUI 界面里搭好并**导出为 API 格式**，然后给关键节点写上 `_meta.title`，存进 `workflows/`：
+直接**手写** API 格式 JSON（不是界面导出），关键节点写上 `_meta.title`，存进 `workflows/`：
 
 | 文件 | 用途 | 必需标题 |
 |---|---|---|
-| `workflows/fish-txt2img.json` | 纯文生图 | `PROMPT` `NEGATIVE` `SAMPLER` `SEED` |
-| `workflows/fish-img2img.json` | 底图复用（锁形象） | 上述 + `SOURCE_IMAGE` |
+| `workflows/fish-txt2img.json` | 纯文生图 | `提示词` `负面词` `采样器` `种子` `步数` `尺寸` `输出` |
+| `workflows/fish-img2img.json` | 底图复用（锁形象） | 上述 + `底图` |
 
 标题约定见 design.md §6.3——**按 `_meta.title` 注入参数，不按节点 ID**。
+标题写错会静默失效，所以 `tests/test_workflows.py` 把它钉死。
+
+**纯文生图已跑通（2026-10-23）**：13 个节点，双版本实测 ——
+
+| 版本 | 步数 | 1024×1024 一张 | 显存峰值 |
+|---|---|---|---|
+| `flux-2-klein-4b-fp8`（distilled） | 4 | 2.5 秒 | 12.8 GB |
+| `flux-2-klein-base-4b-fp8`（base） | 20 | 10.0 秒 | 13.4 GB |
 
 **2) 写 `lab/` 的模块**
 

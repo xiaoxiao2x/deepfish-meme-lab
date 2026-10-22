@@ -125,9 +125,36 @@ aria2c -x16 -s16 -k1M -c --file-allocation=none \
 
 `-c` 断点续传，`.aria2` 控制文件留在同目录。实测按 2 MiB/s 量级走——慢，但稳，中途断了能接着下。
 
-## 未验证项（M1 必须回填）
+## 实测结果（本机 RTX 5070 Ti 16 GB，2026-10-23 跑通）
 
-1. Klein 4B 在本机的**实际出图速度与峰值显存**（纸面值不算数）。
-2. Klein 工作流在 ComfyUI 里的**节点图长什么样**。本机 ComfyUI 实测 **0.42.0**（`GET /system_stats` 返回的 `comfyui_version`），`supported_models.py` 里已有 `Flux2` 类与 Klein tokenizer，理论上支持，但没跑过。
-3. `denoise` 0.55 这个默认值是否合适。
-4. ~~hf-mirror 下载 16.5 GB 的实际速度与断点续传表现~~ → 已实测，见上（走的是直连 + aria2c 断点续传）。
+Klein 4B 两个版本都真的出图了：
+
+| 版本 | 步数 | cfg | 1024×1024 一张 | 显存峰值 |
+|---|---|---|---|---|
+| `flux-2-klein-4b-fp8`（distilled） | 4 | 1.0 | **2.5 秒** | **12.8 GB** |
+| `flux-2-klein-base-4b-fp8`（base） | 20 | 5.0 | **10.0 秒** | **13.4 GB** |
+
+- 显存常驻约 **12.2 GB**（模型加载完 idle 时），16 GB 卡余量约 3 GB
+- 两个版本可以先后跑，ComfyUI 自己换出，不会叠着占
+- 采样器 `euler` + `Flux2Scheduler`；20 步 / cfg 5.0 是官方 blueprint 给 base 的值
+- 13 个节点的链路（API 格式模板见 `workflows/fish-txt2img.json`）：
+
+      UNETLoader ─────────────────┐
+      CLIPLoader → CLIPTextEncode ×2 ─→ CFGGuider ─┐
+      EmptyFlux2LatentImage ───────┼───────────────┼→ SamplerCustomAdvanced
+      Flux2Scheduler ──────────────┼───────────────┘        │
+      KSamplerSelect ──────────────┼────────────────────────┤
+      RandomNoise ─────────────────┼────────────────────────┘
+      VAELoader ───────────────────┴→ VAEDecode → SaveImage
+
+- **结论：16 GB 够用，不需要退路。** 峰值 13.4 GB，余量约 3 GB，
+  连「base 与 distilled 先后加载」这种瞬时换入也没顶到。
+
+顺带把原先「未验证项」里的第 4 条也结了：走直连 + aria2c 断点续传下的 16.5 GB，
+四个文件各自 `rc=0`，见上面的下载通道一节。
+
+## 还没验的
+
+1. `denoise` 0.55 这个默认值合不合适 —— 要等底图复用（#8）跑起来才知道。
+2. 自训角色 LoRA 的甜蜜点（1500–2100 步）在本机是否成立 —— 第一阶段不做 LoRA，
+   这条已列入非目标，留着给以后。
