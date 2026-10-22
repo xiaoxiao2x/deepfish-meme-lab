@@ -79,7 +79,7 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
         ┌───────────────────▼──────────────────────┐
         │  lab/  （Python · 工作台本体）             │
         │                                          │
-        │  assets.py      素材索引（803 张，只读引用）│
+        │  assets.py      素材索引（415 张，只读引用）│
         │  workflows.py   工作流模板加载 + 参数注入   │
         │  comfy.py       调 ComfyUI HTTP/WS API     │
         │  postprocess.py Pillow 去背 / 加字 / 缩放   │

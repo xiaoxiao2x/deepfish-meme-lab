@@ -105,7 +105,7 @@ lab/
 └── workflows.py    模板加载 + 参数注入
 ```
 
-（`doctor.py` 与 `cli.py`、`config.py` 是第一个切片就写的——见 §2 的「先做哪一件」；后三个按 #7/#8/#13 落地。）
+（`config.py`、`doctor.py`、`cli.py`、`assets.py` 已落地 —— 见 §2 的「先做哪一件」与 #5、#13；`comfy.py` 按 #6、`workflows.py` 按 #7 落地。）
 
 **3) `lab doctor`：环境体检**
 

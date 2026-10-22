@@ -15,10 +15,13 @@
 ## 跑起来
 
 ```bash
-python3 -m lab doctor       # 体检：引擎、权重、节点、素材、输出目录
+python3 -m lab doctor        # 体检：引擎、权重、节点、素材、输出目录
+python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
+python3 -m lab assets dupes  # 按索引列出重复组
 ```
 
-零安装：运行时只用标准库，系统的 `python3` 直接跑（`tomllib` 要 3.11+）。
+三方依赖只有一个 **Pillow**（读图算哈希用）；`lab doctor` 连它都不碰，纯标准库。
+系统的 `python3` 直接跑（`tomllib` 要 3.11+）。
 
 跑测试需要 pytest（装在 `.venv` 里）：
 
