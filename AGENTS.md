@@ -9,7 +9,7 @@
 | [docs/design.md](docs/design.md) | 是什么、不做什么、架构、技术选型、数据格式、GUI 大致设计 |
 | [docs/roadmap.md](docs/roadmap.md) | 先做什么、做到什么程度算成、已知的坑 |
 
-硬约束（详见 design.md §3.2「非目标」）：不做网站、不训 LoRA、不做多用户、不接在线生图 API。素材（803 张原料）与生成产物不进仓库，仓库只留 `workflows/` 与 `data/registry.json`。
+硬约束（详见 design.md §3.2「非目标」）：不做网站、不训 LoRA、不做多用户、不接在线生图 API。素材（803 张）与生成产物不进仓库，仓库只留 `workflows/` 与 `data/registry.json`。
 
 ## Agent skills
 
@@ -23,4 +23,4 @@ Default five-role vocabulary, each label string equal to its role name. See `doc
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` plus `docs/adr/` at the repo root (neither exists yet; skills create them lazily). See `docs/agents/domain.md`.
+Single-context: one `GLOSSARY.md` at the repo root for domain vocabulary, plus `docs/adr/` for hard-to-reverse decisions. See `docs/agents/domain.md`.
