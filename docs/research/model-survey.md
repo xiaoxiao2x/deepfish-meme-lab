@@ -104,9 +104,30 @@ magick -delay 8 -loop 0 frame_*.png out.webp
 - `github.com` 可达；clone custom_nodes 超时时用 GitHub 代理前缀。
 - ModelScope 同步 Qwen 系权重，可作备用源。
 
+**权重来源（实际在用的地址）**：
+
+| 文件 | 仓库 | 落点 |
+|---|---|---|
+| `flux-2-klein-4b-fp8.safetensors` | `black-forest-labs/FLUX.2-klein-4b-fp8` | `models/diffusion_models/` |
+| `flux-2-klein-base-4b-fp8.safetensors` | `black-forest-labs/FLUX.2-klein-base-4b-fp8` | 同上 |
+| `qwen_3_4b.safetensors` | `Comfy-Org/vae-text-encorder-for-flux-klein-4b`（`split_files/text_encoders/`） | `models/text_encoders/` |
+| `flux2-vae.safetensors` | 同上（`split_files/vae/`） | `models/vae/` |
+
+**格式：官方发的就是 fp8。** `-fp8` 不是我们自己量化的，是 black-forest-labs 发布的那一版（4.07 GB distilled / 4.09 GB base）；16 GB 显存下 fp8 够用，没有换 bf16 的理由。
+
+**aria2c 多线程直连（实际用法）**：`huggingface.co` 直连可用，不需要镜像前缀。
+
+```bash
+aria2c -x16 -s16 -k1M -c --file-allocation=none \
+  -d models/diffusion_models -o flux-2-klein-4b-fp8.safetensors \
+  https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8/resolve/main/flux-2-klein-4b-fp8.safetensors
+```
+
+`-c` 断点续传，`.aria2` 控制文件留在同目录。实测按 2 MiB/s 量级走——慢，但稳，中途断了能接着下。
+
 ## 未验证项（M1 必须回填）
 
 1. Klein 4B 在本机的**实际出图速度与峰值显存**（纸面值不算数）。
-2. Klein 工作流在 ComfyUI 里的**节点图长什么样**（本机 ComfyUI 版本 0.34.0-44 的 `supported_models.py` 里已有 `Flux2` 类与 Klein tokenizer，理论上支持，但没跑过）。
+2. Klein 工作流在 ComfyUI 里的**节点图长什么样**。本机 ComfyUI 实测 **0.42.0**（`GET /system_stats` 返回的 `comfyui_version`），`supported_models.py` 里已有 `Flux2` 类与 Klein tokenizer，理论上支持，但没跑过。
 3. `denoise` 0.55 这个默认值是否合适。
-4. hf-mirror 下载 16.5 GB 的**实际速度与断点续传表现**。
+4. ~~hf-mirror 下载 16.5 GB 的实际速度与断点续传表现~~ → 已实测，见上（走的是直连 + aria2c 断点续传）。
