@@ -1,0 +1,13 @@
+# 这里不是打包配置：工作台从仓库根直接跑（python -m lab ...），不安装、不发版。
+# 这份文件只干两件事：声明 Python 版本下限（tomllib 需要 3.11+），给 pytest 指路。
+
+[project]
+name = "deepfish-meme-lab"
+version = "0.1.0"
+description = "鱼片加工厂 · 本地鲸鱼娘梗图/表情包生成工作台"
+requires-python = ">=3.11"
+dependencies = []  # 运行时零三方依赖
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,243 @@
+"""体检：一次跑完，把环境里缺的东西全说清楚。
+
+为什么它比出图命令更早存在 —— 没有它的时候，每一个环境错误（权重没下完、
+节点没装、引擎没起）都要花十分钟去猜。有了它，一条命令给出全部答案。
+
+检查读的是真实状态（HTTP 端口、文件、目录），报的是人话。唯一的例外是
+「输出目录」那项：它必须真写一个探针文件才知道能不能写，写完就删。
+
+两种「没成」要分清：
+
+    WARN  没配，所以没查 —— 不算通过（退出码非 0）
+    FAIL  查了，确实缺东西
+"""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+
+from .config import Config
+
+__all__ = ["CheckResult", "Status", "has_failures", "is_ready", "run_doctor"]
+
+IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+
+# 权重体积下限的宽容度。标称值本身是四舍五入过的，所以不能卡死；
+# 代价是「下到 96% 断掉」这种半截抓不出来 —— 要精确判断得配 sha256，那是以后的事。
+SIZE_TOLERANCE = 0.95
+GB = 1000**3
+
+
+class Status(Enum):
+    OK = "ok"
+    WARN = "warn"  # 没配，所以没法查
+    FAIL = "fail"  # 真缺东西
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    key: str  # engine / weights / nodes / assets / output
+    label: str  # 给人看的名字
+    status: Status
+    detail: str
+
+
+# ── 共用零件 ──────────────────────────────────────────────────────────
+
+
+def _unconfigured(key: str, label: str, what: str) -> CheckResult:
+    """统一的「没配，所以没查」出口。"""
+    return CheckResult(key, label, Status.WARN, what)
+
+
+def _engine_root(cfg: Config, key: str, label: str) -> tuple[Path | None, CheckResult | None]:
+    """ComfyUI 根目录；用不了时给出原因，别让上层去猜是哪个文件缺了。"""
+    root = cfg.comfy.root
+    if root is None:
+        return None, _unconfigured(
+            key, label,
+            "还没配 comfy.root —— 在 config/local.toml 写上 ComfyUI 安装目录才能检查",
+        )
+    if not root.is_dir():
+        return None, CheckResult(
+            key, label, Status.FAIL, f"comfy.root 指向的目录不存在：{root}"
+        )
+    return root, None
+
+
+def _engine_get(cfg: Config, path: str) -> bytes:
+    """向引擎要一个只读端点。
+
+    超时用 comfy.probe_timeout，不是任务级的 comfy.timeout —— 体检不该等十分钟。
+    #6 把 comfy.py 建起来之后，这个函数应当并进那边的客户端，别留两个 HTTP 调用点。
+    """
+    url = f"{cfg.comfy.endpoint}{path}"
+    with urllib.request.urlopen(url, timeout=cfg.comfy.probe_timeout) as response:
+        return response.read()
+
+
+# ── 引擎 ──────────────────────────────────────────────────────────────
+
+
+def check_engine(cfg: Config) -> CheckResult:
+    key, label = "engine", "引擎连通"
+    where = f"{cfg.comfy.host}:{cfg.comfy.port}"
+
+    try:
+        raw = _engine_get(cfg, "/system_stats")
+    except urllib.error.HTTPError as exc:
+        return CheckResult(
+            key, label, Status.FAIL,
+            f"{where} 上有服务，但它对 /system_stats 回了 {exc.code}"
+            f" —— 端口也许被别的程序占着",
+        )
+    except (urllib.error.URLError, OSError, TimeoutError):
+        return CheckResult(
+            key, label, Status.FAIL,
+            f"连不上 {where} —— 请先启动 ComfyUI"
+            f"（conda activate comfyui && python main.py）",
+        )
+
+    try:
+        version = json.loads(raw.decode("utf-8"))["system"]["comfyui_version"]
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+        return CheckResult(
+            key, label, Status.FAIL,
+            f"{where} 上有服务，但它对 /system_stats 的回应不像 ComfyUI",
+        )
+    return CheckResult(key, label, Status.OK, f"{where} · ComfyUI {version}")
+
+
+# ── 权重 ──────────────────────────────────────────────────────────────
+
+
+def check_weights(cfg: Config) -> CheckResult:
+    key, label = "weights", "生图权重"
+    root, problem = _engine_root(cfg, key, label)
+    if problem is not None:
+        return problem
+    assert root is not None  # 契约：没有 problem 就一定给了 root
+    if not cfg.comfy.weights:
+        return _unconfigured(key, label, "默认配置里没有权重清单")
+
+    missing: list[str] = []
+    truncated: list[str] = []
+    for spec in cfg.comfy.weights:
+        path = root / spec.file
+        name = Path(spec.file).name
+        if not path.is_file():
+            missing.append(name)
+            continue
+        floor = int(spec.size_gb * SIZE_TOLERANCE * GB)
+        actual = path.stat().st_size
+        if actual < floor:
+            truncated.append(f"{name}（{actual / GB:.2f} GB，标称 {spec.size_gb} GB）")
+
+    if missing or truncated:
+        parts = []
+        if missing:
+            parts.append("缺 " + "、".join(missing))
+        if truncated:
+            parts.append("体积不足 " + "、".join(truncated))
+        return CheckResult(
+            key, label, Status.FAIL, "；".join(parts) + f"（都在 {root} 下）"
+        )
+
+    total = sum(spec.size_gb for spec in cfg.comfy.weights)
+    return CheckResult(key, label, Status.OK, f"{len(cfg.comfy.weights)} 个文件在位，共约 {total:.1f} GB")
+
+
+# ── custom_nodes ──────────────────────────────────────────────────────
+
+
+def check_nodes(cfg: Config) -> CheckResult:
+    key, label = "nodes", "节点包"
+    root, problem = _engine_root(cfg, key, label)
+    if problem is not None:
+        return problem
+    assert root is not None  # 契约：没有 problem 就一定给了 root
+    if not cfg.comfy.required_nodes:
+        return _unconfigured(key, label, "默认配置里没有节点清单")
+
+    node_dir = root / "custom_nodes"
+    missing = [name for name in cfg.comfy.required_nodes if not (node_dir / name).is_dir()]
+    if missing:
+        return CheckResult(
+            key, label, Status.FAIL, "缺 " + "、".join(missing) + f"（在 {node_dir}）"
+        )
+    # 目录在 ≠ 能加载：pip 依赖没装时 ComfyUI 会在启动日志里报错。
+    # 那是引擎自己的事，体检只能保证文件确实放进去了。
+    return CheckResult(
+        key, label, Status.OK,
+        f"{len(cfg.comfy.required_nodes)} 个包已放置（能否加载看引擎启动日志）",
+    )
+
+
+# ── 素材 ──────────────────────────────────────────────────────────────
+
+
+def check_assets(cfg: Config) -> CheckResult:
+    key, label = "assets", "素材池"
+    roots = cfg.paths.asset_roots
+    if not roots:
+        return _unconfigured(
+            key, label,
+            "还没配素材根目录 —— 在 config/local.toml 的 paths.asset_roots 里写上"
+            "（素材只读引用，不会被动）",
+        )
+
+    missing = [str(path) for path in roots if not path.is_dir()]
+    if missing:
+        return CheckResult(key, label, Status.FAIL, "这些路径不存在：" + "、".join(missing))
+
+    count = sum(
+        1
+        for path in roots
+        for item in path.rglob("*")
+        if item.is_file() and item.suffix.lower() in IMAGE_SUFFIXES
+    )
+    return CheckResult(key, label, Status.OK, f"{len(roots)} 个根目录可达，共 {count} 张图")
+
+
+# ── 输出目录 ──────────────────────────────────────────────────────────
+
+
+def check_output(cfg: Config) -> CheckResult:
+    key, label = "output", "输出目录"
+    out = cfg.paths.output_dir
+
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return CheckResult(key, label, Status.FAIL, f"建不出 {out}：{exc.strerror or exc}")
+
+    try:
+        # 探针交给 tempfile 清理，免得自己删在半路留下垃圾、还把「删不掉」误报成「写不进去」
+        with tempfile.NamedTemporaryFile(dir=out, prefix=".lab-write-probe-"):
+            pass
+    except OSError:
+        return CheckResult(key, label, Status.FAIL, f"{out} 建得出来，但写不进去")
+    return CheckResult(key, label, Status.OK, str(out))
+
+
+CHECKS = (check_engine, check_weights, check_nodes, check_assets, check_output)
+
+
+def run_doctor(cfg: Config) -> list[CheckResult]:
+    """跑完全部检查。顺序是有意的：引擎最外层，输出目录最里层。"""
+    return [check(cfg) for check in CHECKS]
+
+
+def has_failures(results) -> bool:
+    return any(result.status is Status.FAIL for result in results)
+
+
+def is_ready(results) -> bool:
+    """全绿才算就绪 —— WARN 是「没查」，不是通过。"""
+    return all(result.status is Status.OK for result in results)

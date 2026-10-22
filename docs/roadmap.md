@@ -65,7 +65,7 @@ python main.py          # → 127.0.0.1:8188
 
 ### 已探明的事实（不用重查）
 
-- ComfyUI 版本 **0.34.0**（`v0.34.0-44-ge80c1570`，2026-09-04，`master` 分支）
+- ComfyUI 版本 **0.42.0**（2026-10-22 实测；本机已原生支持 FLUX.2 Klein，无需升级——需 ≥0.41.0 的只有 FLUX.3 Klein，本项目不用）
 - **本地版本已原生支持 FLUX.2 与 Klein 文本编码器**（`comfy/supported_models.py` 有 `Flux2` 类与 `KleinTokenizer` / `klein_te`）→ **不需要先升级 ComfyUI 就能用 Klein 4B**
 - FLUX.**3** Klein 才需要 ComfyUI ≥ 0.41.0——本项目不用它，无关
 - 中文字体已齐：89 个中文字体，`Noto Sans CJK` 系列（Black/Bold/Regular/Medium/Light）在 `/usr/share/fonts/opentype/noto/` → 加字的中文渲染无障碍
@@ -93,16 +93,19 @@ python main.py          # → 127.0.0.1:8188
 
 标题约定见 design.md §6.3——**按 `_meta.title` 注入参数，不按节点 ID**。
 
-**2) 写 `lab/` 的四个模块**
+**2) 写 `lab/` 的模块**
 
 ```
 lab/
-├── config.py       读 config/default.toml + local.toml
+├── config.py       读 config/default.toml + local.toml，深合并
+├── doctor.py       环境体检（五项检查，只读为主）
+├── cli.py          命令行入口
 ├── assets.py       素材扫描与索引（只读引用）
 ├── comfy.py        ComfyUI HTTP/WS 客户端
-├── workflows.py    模板加载 + 参数注入
-└── cli.py          命令行入口
+└── workflows.py    模板加载 + 参数注入
 ```
+
+（`doctor.py` 与 `cli.py`、`config.py` 是第一个切片就写的——见 §2 的「先做哪一件」；后三个按 #7/#8/#13 落地。）
 
 **3) `lab doctor`：环境体检**
 
@@ -215,7 +218,7 @@ python -m lab caption output/2026-10-22/fish-001.sticker.png --text "你好呀"
 
 全部通过条件：
 
-1. 三件产物都落盘、格式正确（③ 的中文正确渲染）
+1. 三件成品都落盘、格式正确（③ 的中文正确渲染）
 2. **连跑 5 次，鲸鱼娘形象稳定在同一只**
 3. **无手 / 眼崩坏**（明显畸形即不通过）
 4. **全程不需要打开 ComfyUI 界面**（只允许它作为后台进程运行）
@@ -261,4 +264,4 @@ python -m lab caption output/2026-10-22/fish-001.sticker.png --text "你好呀"
 4. **同 seed 不保证跨版本一致**——配方里记 `comfyui_version`。
 5. **16 GB 是"够用"不是"宽裕"**——同时开浏览器、编辑器、GUI 服务时，VAE 解码峰值可能顶上去。出图时别开别的大内存程序。
 6. **素材是引用不是复制**——移动或重命名原始素材目录会让索引失效。索引里存路径，路径变了要重扫。
-7. **`assets/` 与 `output/` 不进 git**——别试图 `git add -f`，1 GB 素材和不断增长的产物会把仓库搞烂。
+7. **`assets/` 与 `output/` 不进 git**——别试图 `git add -f`，1 GB 素材和不断增长的成品会把仓库搞烂。

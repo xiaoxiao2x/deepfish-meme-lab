@@ -9,12 +9,40 @@ host = "127.0.0.1"
 port = 8188
 # 单次任务的等待上限（秒）
 timeout = 600
+# 体检探测的等待上限（秒）。体检不该等十分钟，所以单独给一个短超时。
+probe_timeout = 3
+# ComfyUI 安装目录。带本机气味，所以默认留空，实际值写在 config/local.toml。
+# 留空时体检会把权重与节点两项标成「待办」而不是「失败」。
+root = ""
+# 必须装齐的 custom_nodes（目录名）
+required_nodes = ["ComfyUI-Manager", "ComfyUI-RMBG", "ComfyUI-KJNodes"]
+
+# 引擎侧必须存在的权重。路径相对 ComfyUI 根目录，size_gb 用来抓半截下载。
+[[comfy.weights]]
+file = "models/diffusion_models/flux-2-klein-base-4b-fp8.safetensors"
+size_gb = 4.09
+note = "Klein 4B base，50 步，走质量"
+
+[[comfy.weights]]
+file = "models/diffusion_models/flux-2-klein-4b-fp8.safetensors"
+size_gb = 4.07
+note = "Klein 4B distilled，4 步，走速度"
+
+[[comfy.weights]]
+file = "models/text_encoders/qwen_3_4b.safetensors"
+size_gb = 8.04
+note = "文本编码器，与 Z-Image-Turbo 共用"
+
+[[comfy.weights]]
+file = "models/vae/flux2-vae.safetensors"
+size_gb = 0.34
+note = "VAE"
 
 [paths]
 # 素材根目录列表（只读引用：不复制、不修改、不移动）
 # 本机实际值写在 config/local.toml
 asset_roots = []
-# 生成产物目录（相对仓库根，或绝对路径）
+# 输出目录（相对仓库根，或绝对路径）
 output_dir = "output"
 # 素材索引落盘位置（不进 git）
 asset_index = "assets/index.local.json"
@@ -38,8 +66,8 @@ prompt_prefix = ""
 negative = ""
 
 [postprocess]
-# 加字用的中文字体（系统已装 Noto Sans CJK 系列）
-font = "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc"
+# 加字用的中文字体（绝对路径）。系统字体路径带本机气味，实际值写在 config/local.toml。
+font = ""
 font_size = 64
 stroke_width = 4
 stroke_color = "#FFFFFF"
