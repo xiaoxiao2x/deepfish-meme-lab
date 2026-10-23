@@ -1,9 +1,12 @@
-"""工作流模板的结构规格。
+"""工作流模板的结构规格，以及参数注入的契约。
 
 模板是 **API 格式**（不是界面格式）：每个节点一张卡片，靠节点 ID 互相引用，
 引擎直接吃这个 JSON，不需要任何界面操作。
 
 参数注入认**标题**不认节点 ID —— 重排工作流时 ID 会变，标题不会。
+
+后半段接着测注入本身（apply 往哪个标题写了什么值）：那是同一件事的另一半 ——
+标题对了但注入落错节点，一样是白出一张图。
 """
 
 from __future__ import annotations
@@ -12,6 +15,8 @@ import json
 from pathlib import Path
 
 import pytest
+
+from lab.workflows import find_by_title
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO_ROOT / "workflows").glob("*.json"))
@@ -34,6 +39,11 @@ SAVING_NODES = {"SaveImage", "PreviewImage"}
 
 def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _titles(wf: dict) -> set[str]:
+    """模板里出现的所有 _meta.title —— "有没有那个标题"全靠它判断。"""
+    return {(n.get("_meta") or {}).get("title") for n in wf.values()}
 
 
 def test_at_least_one_template_exists():
@@ -61,8 +71,7 @@ def test_links_point_at_nodes_that_exist(path):
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
 def test_agreed_titles_are_present(path):
-    titles = {(n.get("_meta") or {}).get("title") for n in load(path).values()}
-    missing = REQUIRED_TITLES - titles
+    missing = REQUIRED_TITLES - _titles(load(path))
     assert not missing, f"缺标题：{sorted(missing)}"
 
 
@@ -92,3 +101,129 @@ def test_every_node_reaches_the_saving_node(path):
                 queue.append(str(value[0]))
 
     assert seen == set(wf), f"够不着的节点：{sorted(set(wf) - seen)}"
+
+
+# ---------- 底图复用模板（票 #8） ----------
+
+IMG2IMG = REPO_ROOT / "workflows" / "fish-img2img.json"
+TXT2IMG = REPO_ROOT / "workflows" / "fish-txt2img.json"
+
+
+def _only(wf: dict, class_type: str) -> tuple[str, dict]:
+    hits = [(nid, n) for nid, n in wf.items() if n["class_type"] == class_type]
+    assert len(hits) == 1, f"{class_type} 出现 {len(hits)} 次，模板结构变了"
+    return hits[0]
+
+
+def test_the_two_templates_are_kept_apart():
+    """有没有底图是两条不同的路，别把两者混进一个模板里猜。"""
+    assert {"底图", "重绘强度"} <= _titles(load(IMG2IMG))
+    assert "底图" not in _titles(load(TXT2IMG))
+    assert "重绘强度" not in _titles(load(TXT2IMG))
+
+
+def test_img2img_encodes_the_base_image_instead_of_empty_noise():
+    wf = load(IMG2IMG)
+    _, sampler = _only(wf, "SamplerCustomAdvanced")
+    encoder = wf[sampler["inputs"]["latent_image"][0]]
+    assert encoder["class_type"] == "VAEEncode"
+
+
+def test_img2img_scales_the_base_image_before_encoding_it():
+    """底图先缩到画布再编码 —— 否则 latent 与调度器的 width/height 会打架。"""
+    wf = load(IMG2IMG)
+    _, sampler = _only(wf, "SamplerCustomAdvanced")
+    encoder = wf[sampler["inputs"]["latent_image"][0]]
+    scale = wf[encoder["inputs"]["pixels"][0]]
+    assert scale["class_type"] == "ImageScale"
+    assert (scale.get("_meta") or {}).get("title") == "尺寸"
+    assert scale["inputs"]["width"] and scale["inputs"]["height"]
+    assert wf[scale["inputs"]["image"][0]]["class_type"] == "LoadImage"
+
+
+def test_img2img_puts_denoise_between_the_scheduler_and_the_sampler():
+    """重绘强度是唯一旋钮：截 Flux2 的 sigma 曲线，而不是换一套调度器。"""
+    wf = load(IMG2IMG)
+    split_id = find_by_title(wf, "重绘强度")
+    assert split_id is not None
+    split = wf[split_id]
+    assert split["class_type"] == "SplitSigmasDenoise"
+    assert wf[split["inputs"]["sigmas"][0]]["class_type"] == "Flux2Scheduler"
+
+    _, sampler = _only(wf, "SamplerCustomAdvanced")
+    # 下标 1 是 low_sigmas：从"只走完 denoise 那一段"开始采样
+    assert sampler["inputs"]["sigmas"] == [split_id, 1]
+
+
+# ---------- 注入契约 ----------
+
+
+def _spec(**overrides):
+    from lab.workflows import GenSpec
+
+    base = {
+        "prompt": "x",
+        "negative": "",
+        "seed": 1,
+        "steps": 20,
+        "cfg": 5.0,
+        "width": 1024,
+        "height": 1024,
+    }
+    return GenSpec(**{**base, **overrides})
+
+
+def test_a_txt2img_template_refuses_a_base_image():
+    """给了底图却拿文生图模板 —— 报错，别静默出一张跟底图无关的图。"""
+    from lab.workflows import WorkflowError, apply
+
+    with pytest.raises(WorkflowError) as caught:
+        apply(load(TXT2IMG), _spec(init_image=Path("base.png")), engine_name="lab-init-a.png")
+
+    assert "底图" in str(caught.value)
+
+
+def test_an_img2img_template_demands_a_base_image():
+    from lab.workflows import WorkflowError, apply
+
+    with pytest.raises(WorkflowError) as caught:
+        apply(load(IMG2IMG), _spec())
+
+    assert "底图" in str(caught.value)
+
+
+def test_apply_injects_the_engine_name_and_the_denoise():
+    from lab.workflows import apply, find_by_title
+
+    prompt = apply(
+        load(IMG2IMG),
+        _spec(init_image=Path("base.png"), denoise=0.42),
+        engine_name="lab-init-abc.png",
+    )
+
+    assert prompt[find_by_title(prompt, "底图")]["inputs"]["image"] == "lab-init-abc.png"
+    assert prompt[find_by_title(prompt, "重绘强度")]["inputs"]["denoise"] == 0.42
+    assert prompt[find_by_title(prompt, "尺寸")]["inputs"]["width"] == 1024
+
+
+def test_apply_keeps_the_text_only_path_unchanged():
+    from lab.workflows import apply
+
+    prompt = apply(load(TXT2IMG), _spec())
+
+    assert "LoadImage" not in {n["class_type"] for n in prompt.values()}
+
+
+def test_apply_does_not_touch_the_template_it_was_given():
+    from lab.workflows import apply, find_by_title
+
+    template = load(IMG2IMG)
+    before = template[find_by_title(template, "底图")]["inputs"]["image"]
+
+    apply(
+        template,
+        _spec(init_image=Path("base.png")),
+        engine_name="lab-init-abc.png",
+    )
+
+    assert template[find_by_title(template, "底图")]["inputs"]["image"] == before

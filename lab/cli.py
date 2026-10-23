@@ -232,6 +232,14 @@ def _run_make(config: Config, args: argparse.Namespace) -> int:
         print("--prompt 不能是空的：总得告诉它画什么。", file=sys.stderr)
         return 2
 
+    if args.denoise is not None and not args.init_image:
+        print(
+            "--denoise 只在给了 --init-image 时才有用：没有底图就没有重绘，"
+            "这个旋钮会被忽略。补上 --init-image，或者去掉 --denoise。",
+            file=sys.stderr,
+        )
+        return 2
+
     gen = config.generate
     prefix = gen.prompt_prefix
     spec = GenSpec(
@@ -243,15 +251,23 @@ def _run_make(config: Config, args: argparse.Namespace) -> int:
         cfg=args.cfg if args.cfg is not None else gen.cfg,
         width=args.width if args.width is not None else gen.width,
         height=args.height if args.height is not None else gen.height,
+        # 有底图就走另一条路：同一只形象换表情、换姿势，靠 denoise 把画面钉住
+        init_image=Path(args.init_image) if args.init_image else None,
+        denoise=args.denoise if args.denoise is not None else gen.denoise,
     )
 
-    # --workflow 是文件名覆盖，得让 Config 那一层也认；用 dataclasses.replace 临时换掉
+    # --workflow 是文件名覆盖，得让 Config 那一层也认；用 dataclasses.replace 临时换掉。
+    # 只换「这次会用到的那一份」：有底图走 img2img 那份，没有就走 default ——
+    # 一把旋钮只该改一件事，另一份模板留着不动。
     if args.workflow:
         from dataclasses import replace as _replace
 
-        config = _replace(
-            config, workflows=_replace(config.workflows, default=args.workflow)
+        workflows = (
+            _replace(config.workflows, img2img=args.workflow)
+            if args.init_image
+            else _replace(config.workflows, default=args.workflow)
         )
+        config = _replace(config, workflows=workflows)
 
     # 起点种子已经写进 spec 了，不再往 make 传 seed —— 让它从 spec.seed 往上递增，
     # 这样「同种子同参数」重来的就是整批，而不是四张撞成一张。
@@ -278,6 +294,8 @@ def _run_make(config: Config, args: argparse.Namespace) -> int:
 
     folder = made[0].path.parent
     print()
+    if made[0].source is not None:
+        print(f"底图 {made[0].source.image} · 重绘强度 {made[0].source.denoise}")
     print(f"出了 {len(made)} 张，在 {folder}")
     for one in made:
         print(f"  {one.id}  seed={one.spec.seed}  {one.path.name}")
@@ -352,9 +370,20 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
     make_parser.add_argument("--width", type=int, default=None, help="画布宽")
     make_parser.add_argument("--height", type=int, default=None, help="画布高")
     make_parser.add_argument(
+        "--init-image",
+        default=None,
+        help="底图路径：给了它就走 img2img 模板（[workflows].img2img 那份），把形象钉在原来那张图上",
+    )
+    make_parser.add_argument(
+        "--denoise",
+        type=float,
+        default=None,
+        help="重绘强度 0–1（默认取 [generate].denoise，只在给了 --init-image 时有意义）：越大越自由，越小越像原图",
+    )
+    make_parser.add_argument(
         "--workflow",
         default=None,
-        help="换模板（workflows/ 下的文件名，默认取 [workflows].default）",
+        help="换这次用的模板（workflows/ 下的文件名；有底图换 img2img 那份，没有换文生图那份）",
     )
 
     subparsers.add_parser("stub", help="起一个假引擎（无显卡也能端到端调试）")

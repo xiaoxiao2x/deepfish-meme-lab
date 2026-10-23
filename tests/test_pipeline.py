@@ -68,6 +68,8 @@ class RecordingEngine:
         self.prompts: list[dict] = []
         self.waits: list[str] = []
         self.fetches: list[str] = []
+        self.uploads: list[Path] = []
+        self.upload_names: list[str] = []
         self._counter = 0
 
     def submit(self, prompt: dict, client_id: str | None = None) -> str:
@@ -92,6 +94,13 @@ class RecordingEngine:
         target = dest_dir / Path(image.filename).name
         target.write_bytes(png_bytes())
         return target
+
+    def upload_image(self, path: Path, name: str | None = None) -> str:
+        """记录底图上传 —— 真上传在 test_comfy 里对着 stub 走一遍 HTTP。"""
+        self.uploads.append(Path(path))
+        resolved = name or Path(path).name
+        self.upload_names.append(resolved)
+        return resolved
 
 
 class BatchedEngine(RecordingEngine):
@@ -472,3 +481,266 @@ def test_cli_make_refuses_an_empty_prompt(tmp_path, capsys):
 
     assert code == 2
     assert "画什么" in capsys.readouterr().err
+
+
+# ---------- 底图复用（票 #8） ----------
+
+
+def base_image(tmp_path: Path, name: str = "base.png") -> Path:
+    """一张真的 PNG 当底图 —— 上传那段要读它的字节。"""
+    path = tmp_path / name
+    path.write_bytes(png_bytes())
+    return path
+
+
+def _node_by_title(prompt: dict, title: str) -> dict:
+    from lab.workflows import find_by_title
+
+    node_id = find_by_title(prompt, title)
+    assert node_id is not None, f"交出去的 prompt 里没有标题「{title}」"
+    return prompt[node_id]
+
+
+def _classes(prompt: dict) -> set[str]:
+    return {node["class_type"] for node in prompt.values()}
+
+
+def test_a_base_image_switches_to_the_img2img_template(tmp_path):
+    """验收判据 1：给了底图就走另一个模板。"""
+    engine = RecordingEngine()
+    init = base_image(tmp_path)
+
+    _run(tmp_path, engine=engine, count=1, spec_kwargs={"init_image": init})
+
+    classes = _classes(engine.prompts[0])
+    assert "LoadImage" in classes
+    assert "VAEEncode" in classes
+    assert "EmptyFlux2LatentImage" not in classes
+
+
+def test_without_a_base_image_nothing_changes(tmp_path):
+    """验收判据 5：不给底图时，走的就是原来那条路，也不碰引擎的 input 目录。"""
+    engine = RecordingEngine()
+
+    _run(tmp_path, engine=engine, count=1)
+
+    classes = _classes(engine.prompts[0])
+    assert "EmptyFlux2LatentImage" in classes
+    assert "LoadImage" not in classes
+    assert engine.uploads == []
+
+
+def test_the_base_image_is_uploaded_once_for_the_whole_batch(tmp_path):
+    engine = RecordingEngine()
+    init = base_image(tmp_path)
+
+    _run(tmp_path, engine=engine, count=3, spec_kwargs={"init_image": init})
+
+    assert engine.uploads == [init]
+    assert len(engine.prompts) == 3
+
+
+def test_the_uploaded_name_lands_in_the_template(tmp_path):
+    engine = RecordingEngine()
+    init = base_image(tmp_path)
+
+    _run(tmp_path, engine=engine, count=1, spec_kwargs={"init_image": init})
+
+    loader = _node_by_title(engine.prompts[0], "底图")
+    assert loader["class_type"] == "LoadImage"
+    assert loader["inputs"]["image"] == engine.upload_names[0]
+    # 名字得是安全的 ASCII：素材路径里带中文和空格，引擎的 input 目录不该沾上
+    assert engine.upload_names[0].startswith("lab-init-")
+    assert engine.upload_names[0].endswith(".png")
+
+
+def test_the_same_picture_uploads_under_the_same_name(tmp_path):
+    """同内容的底图两次跑用同一个名字 —— 上传才是幂等的，不会在引擎里堆垃圾。"""
+    engine = RecordingEngine()
+    first = base_image(tmp_path, "one.png")
+    second = tmp_path / "copy.png"
+    second.write_bytes(first.read_bytes())
+
+    _run(tmp_path, engine=engine, count=1, spec_kwargs={"init_image": first})
+    _run(tmp_path, engine=engine, count=1, spec_kwargs={"init_image": second})
+
+    assert engine.upload_names[0] == engine.upload_names[1]
+
+
+def test_denoise_lands_on_the_split_node(tmp_path):
+    """验收判据 2：重绘强度可调。"""
+    engine = RecordingEngine()
+    init = base_image(tmp_path)
+
+    _run(tmp_path, engine=engine, count=1, spec_kwargs={"init_image": init, "denoise": 0.3})
+
+    node = _node_by_title(engine.prompts[0], "重绘强度")
+    assert node["class_type"] == "SplitSigmasDenoise"
+    assert node["inputs"]["denoise"] == 0.3
+
+
+def test_the_record_keeps_the_base_image_and_the_denoise(tmp_path):
+    """验收判据 3：底图与重绘强度进登记信息，形象跑掉时知道从哪退。"""
+    init = base_image(tmp_path)
+
+    made = _run(tmp_path, count=1, spec_kwargs={"init_image": init, "denoise": 0.4})
+
+    source = made[0].source
+    assert source is not None
+    assert source.type == "img2img"  # design.md §6.2 的 source 形状
+    assert source.image == init
+    assert source.denoise == 0.4
+    assert source.engine_filename.endswith(".png")
+
+
+def test_a_pure_text_run_has_no_source(tmp_path):
+    """文生图的记录里不该凭空多出一个「底图」。"""
+    made = _run(tmp_path, count=1)
+
+    assert made[0].source is None
+
+
+def test_a_missing_base_image_is_a_readable_error(tmp_path):
+    """验收判据 4：底图不在，说清楚是哪个文件不在。"""
+    missing = tmp_path / "nope.png"
+
+    with pytest.raises(ValueError) as caught:
+        _run(tmp_path, count=1, spec_kwargs={"init_image": missing})
+
+    message = str(caught.value)
+    assert "底图" in message
+    assert str(missing) in message
+
+
+def test_an_unsupported_base_image_format_is_a_readable_error(tmp_path):
+    """验收判据 4：格式不对，把支持哪些格式说出来。"""
+    bad = tmp_path / "base.txt"
+    bad.write_text("not an image", encoding="utf-8")
+
+    with pytest.raises(ValueError) as caught:
+        _run(tmp_path, count=1, spec_kwargs={"init_image": bad})
+
+    message = str(caught.value)
+    assert "底图" in message
+    assert str(bad) in message
+    assert ".png" in message
+
+
+def test_a_missing_base_image_is_caught_before_the_engine_is_touched(tmp_path):
+    """校验发生在提交之前 —— 底图写错时不该先白交一份任务。"""
+    engine = RecordingEngine()
+
+    with pytest.raises(ValueError):
+        _run(tmp_path, engine=engine, count=1, spec_kwargs={"init_image": tmp_path / "nope.png"})
+
+    assert engine.prompts == []
+    assert engine.uploads == []
+
+
+@pytest.mark.parametrize("denoise", [0.0, -0.1, 1.5])
+def test_an_out_of_range_denoise_is_refused(denoise, tmp_path):
+    """重绘强度是这条路上唯一的旋钮，范围外没有意义 —— 当场说清楚，别白算一批。"""
+    engine = RecordingEngine()
+    init = base_image(tmp_path)
+
+    with pytest.raises(ValueError) as caught:
+        _run(
+            tmp_path,
+            engine=engine,
+            count=1,
+            spec_kwargs={"init_image": init, "denoise": denoise},
+        )
+
+    assert "重绘强度" in str(caught.value)
+    assert engine.prompts == []
+
+
+def test_cli_make_with_a_base_image_goes_through_the_stub(tmp_path, capsys):
+    """整条命令走一遍：argparse → 管线 → 上传 → 提交 → 搬运。"""
+    from lab.cli import main
+
+    init = base_image(tmp_path)
+    with StubEngine() as engine:
+        repo = _twin_repo(tmp_path, engine.port)
+        code = main(
+            [
+                "make",
+                "-p",
+                "同一只鲸鱼娘，换个表情",
+                "-n",
+                "1",
+                "--init-image",
+                str(init),
+                "--denoise",
+                "0.4",
+            ],
+            repo_root=repo,
+        )
+        uploaded = dict(engine.uploads)
+        loader = _node_by_title(engine.prompts[-1], "底图")
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "fish-001.orig.png" in out
+    assert str(init) in out
+    assert "0.4" in out
+    assert list(uploaded.values()) == [init.read_bytes()]
+    # 交出去的模板里写的必须是上传后的那个名字 —— stub 收到的键就是它
+    assert loader["inputs"]["image"] in uploaded
+
+
+def test_cli_make_reports_a_missing_base_image(tmp_path, capsys):
+    from lab.cli import main
+
+    code = main(
+        ["make", "-p", "x", "--init-image", str(tmp_path / "nope.png")],
+        repo_root=_twin_repo(tmp_path, 1),
+    )
+
+    assert code == 2
+    assert "底图" in capsys.readouterr().err
+
+
+def test_cli_refuses_denoise_without_a_base_image(tmp_path, capsys):
+    """没有底图就没有重绘 —— 给了 --denoise 却不给 --init-image，当场说清楚。"""
+    from lab.cli import main
+
+    code = main(
+        ["make", "-p", "x", "--denoise", "0.4"],
+        repo_root=_twin_repo(tmp_path, 1),
+    )
+
+    assert code == 2
+    assert "--init-image" in capsys.readouterr().err
+
+
+def test_cli_workflow_flag_swaps_the_template_in_use(tmp_path, capsys):
+    """--workflow 换的是「这次会用到的那一份」：有底图就换 img2img 那份。"""
+    from lab.cli import main
+
+    init = base_image(tmp_path)
+    with StubEngine() as engine:
+        repo = _twin_repo(tmp_path, engine.port)
+        source = repo / "workflows" / "fish-img2img.json"
+        (repo / "workflows" / "custom.json").write_text(
+            source.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        code = main(
+            [
+                "make",
+                "-p",
+                "x",
+                "-n",
+                "1",
+                "--init-image",
+                str(init),
+                "--workflow",
+                "custom.json",
+            ],
+            repo_root=repo,
+        )
+        classes = _classes(engine.prompts[-1])
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "LoadImage" in classes  # 走的是 --workflow 指的那份 img2img 模板

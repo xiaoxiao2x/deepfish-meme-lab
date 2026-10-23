@@ -88,8 +88,8 @@ python main.py          # → 127.0.0.1:8188
 
 | 文件 | 用途 | 必需标题 |
 |---|---|---|
-| `workflows/fish-txt2img.json` | 纯文生图 | `提示词` `负面词` `采样器` `种子` `步数` `尺寸` `输出` |
-| `workflows/fish-img2img.json` | 底图复用（锁形象） | 上述 + `底图` |
+| `workflows/fish-txt2img.json` | 纯文生图 | `提示词` `负面词` `采样器` `种子` `步数` `尺寸` `引导强度` `输出` |
+| `workflows/fish-img2img.json` | 底图复用（锁形象） | 上述 + `底图` + `重绘强度` |
 
 标题约定见 design.md §6.3——**按 `_meta.title` 注入参数，不按节点 ID**。
 标题写错会静默失效，所以 `tests/test_workflows.py` 把它钉死。

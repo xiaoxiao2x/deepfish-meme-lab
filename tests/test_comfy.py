@@ -163,3 +163,44 @@ def test_stub_reports_itself_as_a_stub():
     """stub 不该自称真引擎版本号，免得被人当成真环境。"""
     with StubEngine() as engine:
         assert "stub" in client(engine).version()
+
+
+# ---------- 底图上传（票 #8） ----------
+
+
+def png(path):
+    path.write_bytes(b"\x89PNG\r\n\x1a\n-not-really-a-png")
+    return path
+
+
+def test_upload_sends_the_base_image_to_the_engine(tmp_path):
+    """底图得真的进引擎的 input 目录 —— LoadImage 只认那儿的文件名。"""
+    source = png(tmp_path / "base.png")
+
+    with StubEngine() as engine:
+        name = client(engine).upload_image(source, name="lab-init-0123456789ab.png")
+        uploaded = dict(engine.uploads)
+
+    assert name == "lab-init-0123456789ab.png"
+    assert uploaded == {"lab-init-0123456789ab.png": source.read_bytes()}
+
+
+def test_upload_keeps_the_local_name_when_no_name_is_given(tmp_path):
+    source = png(tmp_path / "base image.png")
+
+    with StubEngine() as engine:
+        assert client(engine).upload_image(source) == "base image.png"
+
+
+def test_upload_to_a_dead_engine_is_a_readable_error(tmp_path):
+    source = png(tmp_path / "base.png")
+
+    with pytest.raises(EngineUnreachable) as caught:
+        EngineClient("127.0.0.1", dead_port(), poll_interval=0.01).upload_image(source)
+
+    assert "连不上" in str(caught.value)
+
+
+def test_stub_does_not_pretend_to_upload_anything_it_did_not_receive():
+    with StubEngine() as engine:
+        assert engine.uploads == {}

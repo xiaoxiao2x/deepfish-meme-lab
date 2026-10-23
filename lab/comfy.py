@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -164,6 +165,28 @@ class EngineClient:
         target.write_bytes(body)
         return target
 
+    def upload_image(self, path: Path, name: str | None = None) -> str:
+        """把一张底图送进引擎的 input 目录，返回引擎侧的文件名。
+
+        LoadImage 的候选值只有 input 根目录里扫出来的那些文件名，所以底图必须先
+        落到那儿，模板里才写得出一个引擎认的名字。返回的名字要原样写回模板。
+        """
+        path = Path(path)
+        try:
+            payload = path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"底图读不出来：{path}（{exc.strerror or exc}）") from exc
+
+        body, content_type = _multipart(
+            {"type": "input", "overwrite": "true"},
+            {"image": (name or path.name, payload)},
+        )
+        response = self._post("/upload/image", body, content_type)
+        data = _decode(response)
+        if not isinstance(data, dict) or not data.get("name"):
+            raise EngineError(f"引擎收下了底图，却没给出文件名：{_snippet(response)}")
+        return str(data["name"])
+
     def generate(
         self,
         prompt: dict,
@@ -189,6 +212,10 @@ class EngineClient:
             headers["Content-Type"] = "application/json"
 
         request = urllib.request.Request(url, data=data, headers=headers)
+        return self._send(request)
+
+    def _send(self, request: urllib.request.Request) -> bytes:
+        """发一个请求，把两种失败翻译成两种错误 —— 引擎拒绝 vs 引擎不在。"""
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 return response.read()
@@ -196,6 +223,13 @@ class EngineClient:
             raise _http_error(exc.code, exc.read()) from exc
         except (urllib.error.URLError, OSError) as exc:
             raise EngineUnreachable(self._unreachable_message()) from exc
+
+    def _post(self, path: str, body: bytes, content_type: str) -> bytes:
+        """发一段非 JSON 的原始东西（目前只有上传底图用得上）。"""
+        request = urllib.request.Request(
+            f"{self.base}{path}", data=body, headers={"Content-Type": content_type}
+        )
+        return self._send(request)
 
     def _history(self, prompt_id: str) -> dict | None:
         """拿到条目就算完成；还没完成返回 None；跑失败直接抛。"""
@@ -290,3 +324,32 @@ def _decode(body: bytes) -> Any:
 def _snippet(body: bytes, limit: int = 200) -> str:
     text = body[:limit].decode("utf-8", "replace")
     return text + ("…" if len(body) > limit else "")
+
+
+def _multipart(
+    fields: dict[str, str], files: dict[str, tuple[str, bytes]]
+) -> tuple[bytes, str]:
+    """拼一份 multipart/form-data，返回（请求体，Content-Type）。
+
+    手搓的理由：为了传一张底图去拉一个依赖不划算，而这份格式朴素到几十行
+    就能写准（对面是 aiohttp，它认这个形状）。
+    """
+    boundary = f"----lab{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+    for key, value in fields.items():
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"'
+            f"\r\n\r\n{value}\r\n".encode()
+        )
+    for key, (filename, payload) in files.items():
+        # 引号与换行会把 header 撕开：文件名是调用方给的，先在边界上清一遍。
+        safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "")
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{key}";'
+            f' filename="{safe_name}"\r\nContent-Type: application/octet-stream'
+            f"\r\n\r\n".encode()
+        )
+        parts.append(payload)
+        parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"

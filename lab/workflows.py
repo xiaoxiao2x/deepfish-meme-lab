@@ -20,6 +20,8 @@ from typing import Any
 __all__ = [
     "REQUIRED_TITLES",
     "TITLE_CFG",
+    "TITLE_DENOISE",
+    "TITLE_INIT_IMAGE",
     "TITLE_NEGATIVE",
     "TITLE_PROMPT",
     "TITLE_SAMPLER",
@@ -44,6 +46,11 @@ TITLE_SEED = "种子"
 TITLE_STEPS = "步数"
 TITLE_SIZE = "尺寸"
 TITLE_CFG = "引导强度"
+
+#: 只有底图模板（img2img）才有的两件东西。它们不进 REQUIRED_TITLES ——
+#: 文生图模板里没有「底图」是正常的；该报错的是"用错了模板"。
+TITLE_INIT_IMAGE = "底图"
+TITLE_DENOISE = "重绘强度"
 
 #: 注入必须有、缺一个就报错的标题。「采样器」是模板的选择而非业务参数，
 #: 所以它不在这里 —— 但模板结构测试会单独要求它存在。
@@ -72,6 +79,10 @@ class GenSpec:
     cfg: float
     width: int
     height: int
+    #: 有底图就走底图复用：同一只形象换表情、换姿势，靠它把画面钉回原来的样子。
+    init_image: Path | None = None
+    #: 重绘强度是底图那条路上唯一的旋钮 —— 太大丢形象，太小改不动表情。
+    denoise: float = 0.55
 
 
 def load(path: Path | str) -> dict[str, Any]:
@@ -123,9 +134,42 @@ def _set_input(workflow: dict, title: str, key: str, value: Any) -> None:
     inputs[key] = value
 
 
-def apply(workflow: dict, spec: GenSpec) -> dict:
-    """把业务参数注入模板副本，返回可提交的 prompt 图。原模板不动。"""
+def _apply_base_image(workflow: dict, spec: GenSpec, engine_name: str | None) -> None:
+    """底图那条路：把上传后的文件名与重绘强度写进模板。
+
+    两个方向都当场报错 —— 有底图却撞上纯文生图模板、或拿底图模板出纯文生图，
+    都是"整张图白出"，不如现在就拦下来。
+    """
+    has_base_image = find_by_title(workflow, TITLE_INIT_IMAGE) is not None
+    if spec.init_image is None:
+        if has_base_image:
+            raise WorkflowError(
+                "这份模板要一张底图（有「底图」节点），但这次没给 —— "
+                "纯文生图请用 [workflows].default 指的模板。"
+            )
+        return
+    if engine_name is None:
+        raise WorkflowError(
+            f"有底图（{spec.init_image}）却没给引擎侧的文件名 —— "
+            "底图要先传进引擎的 input 目录，LoadImage 才认得它。"
+        )
+    if not has_base_image:
+        raise WorkflowError(
+            "这份模板没有标题为「底图」的节点，出不了底图复用 —— "
+            "用 [workflows].img2img 指的底图模板。"
+        )
+    _set_input(workflow, TITLE_INIT_IMAGE, "image", engine_name)
+    _set_input(workflow, TITLE_DENOISE, "denoise", float(spec.denoise))
+
+
+def apply(workflow: dict, spec: GenSpec, engine_name: str | None = None) -> dict:
+    """把业务参数注入模板副本，返回可提交的 prompt 图。原模板不动。
+
+    engine_name 是底图在引擎 input 目录里的文件名（上传后引擎给的那个名字）。
+    带底图的生成必须给它 —— LoadImage 只认自己目录里的名字。
+    """
     prompt = copy.deepcopy(workflow)
+    _apply_base_image(prompt, spec, engine_name)
 
     _set_input(prompt, TITLE_PROMPT, "text", spec.prompt)
     _set_input(prompt, TITLE_NEGATIVE, "text", spec.negative)

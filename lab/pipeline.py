@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import random
 import shutil
 import tempfile
@@ -22,12 +23,14 @@ from typing import Protocol, runtime_checkable
 
 from .comfy import EngineClient, GeneratedImage
 from .config import Config
+from .paths import IMAGE_SUFFIXES
 from .workflows import GenSpec, apply, load
 
 __all__ = [
     "IMAGE_KIND",
     "MAX_SEED",
     "MadeImage",
+    "MadeImageSource",
     "Progress",
     "SilentProgress",
     "daily_dir",
@@ -69,6 +72,20 @@ class SilentProgress:
 
 
 @dataclass(frozen=True)
+class MadeImageSource:
+    """底图复用的来路：用哪张底图、引擎侧叫它什么、重绘强度多大。
+
+    记这个是为了"形象跑掉了"那天能退回去重跑 —— 重绘强度是那张图上唯一的旋钮，
+    丢了它就只能靠记忆猜。
+    """
+
+    type: str
+    image: Path
+    denoise: float
+    engine_filename: str
+
+
+@dataclass(frozen=True)
 class MadeImage:
     """一张出完的图，连同重跑它需要的全部参数。"""
 
@@ -77,6 +94,8 @@ class MadeImage:
     spec: GenSpec
     prompt_id: str
     engine_filename: str
+    #: 文生图是 None；底图复用记着底图与重绘强度。
+    source: MadeImageSource | None = None
 
     @property
     def id(self) -> str:
@@ -153,6 +172,49 @@ def _move_out(engine_file: Path, target: Path) -> Path:
     return target
 
 
+def _check_init_image(path: Path) -> Path:
+    """底图得真的在、真的是张图 —— 报错要能照着改。
+
+    返回绝对路径：登记条目记的是这张底图，相对路径一换工作目录就指错地方。
+    """
+    path = Path(path).expanduser()
+    if not path.exists():
+        raise ValueError(
+            f"底图不在：{path} —— --init-image 给的就是这个路径，先确认文件还在。"
+        )
+    if not path.is_file():
+        raise ValueError(f"底图不是文件：{path} —— 这里要的是单个图片文件。")
+    if path.suffix.lower() not in IMAGE_SUFFIXES:
+        formats = "、".join(sorted(IMAGE_SUFFIXES))
+        raise ValueError(
+            f"底图格式不支持：{path}（后缀 {path.suffix or '（没有后缀）'}）。"
+            f"支持这些：{formats}"
+        )
+    return path.resolve()
+
+
+def _upload_name(path: Path) -> str:
+    """底图在引擎侧的名字：内容哈希 + 原后缀。
+
+    素材路径里有中文和空格，直接拿原名去引擎容易出岔子；用内容哈希还能让
+    "同一张底图重复上传"落成同一个名字 —— 上传因此是幂等的，不在引擎里堆垃圾。
+    """
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return f"lab-init-{digest}{path.suffix.lower()}"
+
+
+def _template_name(cfg: Config, spec: GenSpec) -> str:
+    """有底图走底图模板，没有就走文生图 —— 这是两张不同的图，不是同一个旋钮。"""
+    if spec.init_image is None:
+        return cfg.workflows.default
+    if not cfg.workflows.img2img:
+        raise ValueError(
+            "给了底图，但 [workflows].img2img 没配模板名 —— "
+            "去 config/default.toml 里补上 img2img 模板的文件名。"
+        )
+    return cfg.workflows.img2img
+
+
 def make(
     cfg: Config,
     spec: GenSpec,
@@ -164,6 +226,9 @@ def make(
 ) -> list[MadeImage]:
     """出一批图。返回每一张的落盘路径与它自己的种子。
 
+    带底图时（spec.init_image）走另一条路：底图先上传一次进引擎的 input 目录，
+    再按 denoise 重绘 —— 这是第一阶段把形象钉住的主力手段。
+
     失败会往外抛 `comfy.EngineError` 家族 —— 管线不把引擎的故障翻译成"出错了"，
     那层翻译是 comfy 的活，这里只负责让已经出成的图不丢。
     """
@@ -171,9 +236,26 @@ def make(
     if total < 1:
         raise ValueError("--count 至少是 1")
 
+    init_image = (
+        _check_init_image(spec.init_image) if spec.init_image is not None else None
+    )
+    if init_image is not None and not 0.0 < float(spec.denoise) <= 1.0:
+        raise ValueError(
+            f"重绘强度得在 0 和 1 之间（不含 0）：给了 {spec.denoise}。"
+            "太大丢形象，太小改不动表情，0.55 是不错的起点。"
+        )
+
     report = progress or SilentProgress()
     engine = client or EngineClient(host=cfg.comfy.host, port=cfg.comfy.port)
-    template = load(Path(cfg.repo_root) / "workflows" / cfg.workflows.default)
+    template = load(Path(cfg.repo_root) / "workflows" / _template_name(cfg, spec))
+
+    # 底图先落到引擎的 input 目录：LoadImage 只认它自己目录里的名字。
+    # 整批只传一次 —— 同一张底图的每一张成品共用它。
+    engine_name = (
+        engine.upload_image(init_image, name=_upload_name(init_image))
+        if init_image is not None
+        else None
+    )
 
     out_dir = daily_dir(cfg.paths.output_dir, today)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -189,7 +271,7 @@ def make(
         # 临时目录只活这一次：引擎侧的文件名（fish/txt2img_00001_.png）不能直接当
         # 成品名用，搬到这里再改名，顺手把"搬运"这件事变成不可省的一步。
         with tempfile.TemporaryDirectory(prefix="lab-engine-") as staging:
-            prompt = apply(template, one)
+            prompt = apply(template, one, engine_name=engine_name)
             prompt_id = engine.submit(prompt)
             result = engine.wait(prompt_id, on_poll=_ticker(report, index, total))
             image = _one_image(result.images, prompt_id)
@@ -198,12 +280,23 @@ def make(
             name = f"fish-{serial + offset:03d}.{IMAGE_KIND}.png"
             final = _move_out(fetched, out_dir / name)
 
+        if init_image is None:
+            source = None
+        else:
+            source = MadeImageSource(
+                type="img2img",
+                image=init_image,
+                denoise=one.denoise,
+                engine_filename=str(engine_name),
+            )
+
         record = MadeImage(
             path=final,
             serial=serial + offset,
             spec=one,
             prompt_id=prompt_id,
             engine_filename=image.filename,
+            source=source,
         )
         made.append(record)
         report.done(index, total, final, one.seed)

@@ -1,0 +1,201 @@
+{
+ "1": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "flux-2-klein-base-4b-fp8.safetensors",
+   "weight_dtype": "default"
+  }
+ },
+ "2": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen_3_4b.safetensors",
+   "type": "flux2",
+   "device": "default"
+  }
+ },
+ "3": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "flux2-vae.safetensors"
+  }
+ },
+ "4": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "2",
+    0
+   ],
+   "text": "a cute chibi blue whale girl mascot, sticker style, thick clean lineart, plain white background"
+  },
+  "_meta": {
+   "title": "提示词"
+  }
+ },
+ "5": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "2",
+    0
+   ],
+   "text": ""
+  },
+  "_meta": {
+   "title": "负面词"
+  }
+ },
+ "6": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "底图"
+  }
+ },
+ "7": {
+  "class_type": "ImageScale",
+  "inputs": {
+   "image": [
+    "6",
+    0
+   ],
+   "upscale_method": "lanczos",
+   "width": 1024,
+   "height": 1024,
+   "crop": "center"
+  },
+  "_meta": {
+   "title": "尺寸"
+  }
+ },
+ "8": {
+  "class_type": "VAEEncode",
+  "inputs": {
+   "pixels": [
+    "7",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ]
+  }
+ },
+ "9": {
+  "class_type": "Flux2Scheduler",
+  "inputs": {
+   "steps": 20,
+   "width": 1024,
+   "height": 1024
+  },
+  "_meta": {
+   "title": "步数"
+  }
+ },
+ "10": {
+  "class_type": "SplitSigmasDenoise",
+  "inputs": {
+   "sigmas": [
+    "9",
+    0
+   ],
+   "denoise": 0.55
+  },
+  "_meta": {
+   "title": "重绘强度"
+  }
+ },
+ "11": {
+  "class_type": "KSamplerSelect",
+  "inputs": {
+   "sampler_name": "euler"
+  },
+  "_meta": {
+   "title": "采样器"
+  }
+ },
+ "12": {
+  "class_type": "CFGGuider",
+  "inputs": {
+   "model": [
+    "1",
+    0
+   ],
+   "positive": [
+    "4",
+    0
+   ],
+   "negative": [
+    "5",
+    0
+   ],
+   "cfg": 5
+  },
+  "_meta": {
+   "title": "引导强度"
+  }
+ },
+ "13": {
+  "class_type": "RandomNoise",
+  "inputs": {
+   "noise_seed": 12345
+  },
+  "_meta": {
+   "title": "种子"
+  }
+ },
+ "14": {
+  "class_type": "SamplerCustomAdvanced",
+  "inputs": {
+   "noise": [
+    "13",
+    0
+   ],
+   "guider": [
+    "12",
+    0
+   ],
+   "sampler": [
+    "11",
+    0
+   ],
+   "sigmas": [
+    "10",
+    1
+   ],
+   "latent_image": [
+    "8",
+    0
+   ]
+  }
+ },
+ "15": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "14",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ]
+  }
+ },
+ "16": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "15",
+    0
+   ],
+   "filename_prefix": "fish/img2img"
+  },
+  "_meta": {
+   "title": "输出"
+  }
+ }
+}
