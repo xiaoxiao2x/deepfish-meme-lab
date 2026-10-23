@@ -15,7 +15,7 @@ M1 环境补齐、M2 出图管线、M3 的去背都已跑通：`python -m lab ma
 ## 跑起来
 
 ```bash
-python3 -m lab doctor        # 体检：引擎、权重、节点、素材、输出目录
+python3 -m lab doctor        # 体检：引擎、权重、节点、模板契约、素材、输出目录
 python3 -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
                             # 出一批图，落到 output/<日期>/，打印路径与 seed
 python3 -m lab make --prompt "同一只鲸鱼娘，换个表情" \
@@ -23,7 +23,7 @@ python3 -m lab make --prompt "同一只鲸鱼娘，换个表情" \
                             # 底图复用：拿一张旧图当底，把形象钉住（0.55 是起点）
 python3 -m lab sticker output/2026-10-23/fish-001.orig.png
                             # 去背：出一张透明底贴纸，落在原图旁边（同名同序号）
-                            # 别的图也行；--model 换这次用的去背模型
+                            # 别的图也行；用哪只去背模型写在模板的 model 字段里
 python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
 python3 -m lab assets dupes  # 按索引列出重复组
 python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通（--rgba 时回的图带透明通道）
@@ -40,10 +40,10 @@ python3 -m venv .venv
 .venv/bin/pip install pytest Pillow ruff mypy
 ```
 
-改完代码跑门禁 —— 三条都过才算过：
+改完代码跑门禁 —— 四条都过才算过：
 
 ```bash
-./scripts/check.sh          # pytest + ruff + mypy
+./scripts/check.sh          # pytest + ruff + mypy + docs
 ./scripts/check.sh ruff     # 只跑其中一条
 ```
 
@@ -51,6 +51,9 @@ python3 -m venv .venv
 `git config core.hooksPath scripts/git-hooks`；某次确实想跳过：`SKIP_CHECKS=1 git commit ...`。
 检查用哪些规则写在 `pyproject.toml` 的 `[tool.ruff]` / `[tool.mypy]` 里，不靠工具默认值
 （本次验证的版本：ruff 0.17.1、mypy 2.4.0、Python 3.11+）。
+`docs` 那一条（`scripts/check_docs.py`）比两件事：`docs/design.md` §6.3 写的标题集合与
+`lab.workflows` 的常量是否一致；源码与模板里有没有用 `GLOSSARY.md` 不收的词。确实该那么写时
+在那一行加 `glossary-ok`，理由写在旁边。
 
 出图要引擎先跑着 —— 工作台不负责启停（[ADR-0004](docs/adr/0004-no-comfyui-lifecycle.md)）：
 

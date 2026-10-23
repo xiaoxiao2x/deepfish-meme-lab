@@ -16,12 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from lab.workflows import find_by_title
+from lab.workflows import REQUIRED_TITLES as INJECTED_TITLES
+from lab.workflows import TITLE_OUTPUT, TITLE_SAMPLER, find_by_title
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO_ROOT / "workflows").glob("*.json"))
 
-#: 生成模板：走完整出图流程的那两份，那一串采样标题归它们管（票 #4 / #8）。
+#: 生成模板：走完整生成流程的那两份，那一串采样标题归它们管（票 #4 / #8）。
 GENERATION = [
     REPO_ROOT / "workflows" / name
     for name in ("fish-txt2img.json", "fish-img2img.json")
@@ -37,18 +38,11 @@ def test_every_template_is_classified():
     unclassified = sorted(p.name for p in set(WORKFLOWS) - classified)
     assert not unclassified, f"没归类的模板：{unclassified}"
 
-# 票 #4 约定的标题集合，票 #7 补上「尺寸」与「引导强度」（后者的 cfg 原先挂在
-# CFGGuider 上但没有标题，注入没法定位）。标题写错一个字注入就会静默失效，所以钉死。
-REQUIRED_TITLES = {
-    "提示词",
-    "负面词",
-    "采样器",
-    "种子",
-    "步数",
-    "尺寸",
-    "引导强度",
-    "输出",
-}
+#: 模板结构上必须有的标题 = 注入要的那几个（唯一定义在 lab.workflows，票 #4 / #7）
+#: +「采样器」（模板的选择，不注入）+「输出」（只要存在）。
+#: 以前这里是第三份手抄，和 design.md、lab.workflows 三处各写一遍 —— 对不上的时候
+#: 没人知道该信哪份。现在只有一处定义，文档那份由 scripts/check_docs.py 对着比。
+REQUIRED_TITLES = {*INJECTED_TITLES, TITLE_SAMPLER, TITLE_OUTPUT}
 
 SAVING_NODES = {"SaveImage", "PreviewImage"}
 

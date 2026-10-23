@@ -13,7 +13,7 @@
 
 ## 改完代码
 
-跑 `./scripts/check.sh` —— pytest + ruff + mypy，三条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。
+跑 `./scripts/check.sh` —— pytest + ruff + mypy + docs（文档与代码对账），四条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。
 
 要出图得先有引擎，工作台不管它的生命周期（ADR-0004）：`./scripts/comfy.sh start|stop|status|log`。
 

@@ -24,7 +24,7 @@ __all__ = [
 
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"})
 
-#: 流程产物（比对拼图）与回收站，不算素材
+#: 流程成品（比对拼图）与回收站，不算素材
 EXCLUDED_DIRS = frozenset(
     {"重复检查", ".Trash-0", ".Trash-1000", "$RECYCLE.BIN", ".git"}
 )

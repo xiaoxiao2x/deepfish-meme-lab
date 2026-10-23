@@ -75,7 +75,7 @@ def _plan_output(cfg: Config, source: Path, today: date | None) -> tuple[Path, i
 
 
 def _check_alpha(path: Path) -> None:
-    """产物必须真的是带 alpha 的 RGBA，否则"透明底贴纸"这句话就是假的。
+    """成品必须真的是带 alpha 的 RGBA，否则"透明底贴纸"这句话就是假的。
 
     去背节点有三路输出（IMAGE / MASK / MASK_IMAGE）：接 MASK 那一路引擎当场就拒
     （SaveImage 要 IMAGE，类型不匹配，实测 0.42.0 返回 400）；MASK_IMAGE 那一路类型

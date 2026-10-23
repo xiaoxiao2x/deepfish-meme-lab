@@ -1,4 +1,4 @@
-"""体检的行为：五项检查各自说真话。
+"""体检的行为：六项检查各自说真话。
 
 这组测试刻意不 mock 任何模块 —— 引擎探测走真 HTTP（对着一个真的会响的
 极小服务，或一个真的没人监听的端口），文件检查对着真的 tmp_path 目录。
@@ -16,6 +16,9 @@ from pathlib import Path
 from lab.cli import main
 from lab.config import load_config
 from lab.doctor import GB, Status, run_doctor
+from lab.stub import STUB_OBJECT_INFO, StubEngine
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_TOML = """
 [comfy]
@@ -81,19 +84,26 @@ def _server(handler_cls):
 
 @contextmanager
 def engine_answering(version: str = "0.34.0"):
-    """一个真的会响 HTTP 的极小服务，冒充引擎的 /system_stats。"""
+    """一个真的会响 HTTP 的极小服务，冒充引擎的 /system_stats。
+
+    也答 /object_info（回 stub 那份节点清单）—— 体检要拿它对账模板，只答一半的
+    假引擎会让「一切就绪」这条测试测不到底。
+    """
 
     class Handler(_SilentHandler):
         def do_GET(self):
             if self.path == "/system_stats":
                 body = json.dumps({"system": {"comfyui_version": version}}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+            elif self.path == "/object_info":
+                body = json.dumps(STUB_OBJECT_INFO).encode()
             else:
                 self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     with _server(Handler) as port:
         yield port
@@ -124,6 +134,7 @@ def make_config(
     comfy_root: Path | str | None = None,
     output_dir: str | None = None,
     asset_roots: list[Path] | None = None,
+    default_template: str | None = None,
     port: int = 8188,
 ):
     cfgdir = tmp_path / "config"
@@ -139,6 +150,8 @@ def make_config(
     if asset_roots is not None:
         joined = ", ".join(f'"{p}"' for p in asset_roots)
         lines.append(f"asset_roots = [{joined}]")
+    if default_template is not None:
+        lines += ["", "[workflows]", f'default = "{default_template}"']
     (cfgdir / "local.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return load_config(tmp_path)
@@ -278,6 +291,70 @@ def test_missing_node_is_named(tmp_path):
     assert "ComfyUI-KJNodes" in nodes.detail
 
 
+# ── 模板契约 ──────────────────────────────────────────────────────────
+
+
+def put_template(tmp_path: Path, name: str = "fish-txt2img.json", text: str | None = None) -> Path:
+    """往 tmp_path/workflows 放一份模板：缺省就把仓库里那份真的抄过来。"""
+    folder = tmp_path / "workflows"
+    folder.mkdir(exist_ok=True)
+    if text is None:
+        text = (REPO_ROOT / "workflows" / name).read_text(encoding="utf-8")
+    (folder / name).write_text(text, encoding="utf-8")
+    return folder / name
+
+
+def test_templates_matching_the_engine_is_ok(tmp_path):
+    """模板没错、引擎也在 —— 这一项该安静地绿。"""
+    put_template(tmp_path)
+    with StubEngine() as engine:
+        cfg = make_config(tmp_path, port=engine.port)
+
+        result = checks(cfg)["templates"]
+
+    assert result.status is Status.OK
+    assert "1 份模板对得上" in result.detail
+
+
+def test_a_model_name_the_engine_does_not_know_is_caught(tmp_path):
+    """模板里写的模型名跟引擎对不上 —— 提交时才炸，而且报的是节点级的天书。"""
+    text = (REPO_ROOT / "workflows" / "fish-sticker.json").read_text(encoding="utf-8")
+    put_template(tmp_path, "fish-sticker.json", text.replace('"Lucida"', '"BiRefNet-nope"'))
+    with StubEngine() as engine:
+        cfg = make_config(
+            tmp_path, port=engine.port, default_template="fish-sticker.json"
+        )
+
+        result = checks(cfg)["templates"]
+
+    assert result.status is Status.FAIL
+    assert "fish-sticker.json" in result.detail
+    assert "不在引擎给的候选里" in result.detail
+
+
+def test_a_broken_template_file_is_reported(tmp_path):
+    """模板本身读不出来（改坏了 JSON）—— 也得在这项里现形，而不是等到用的时候。"""
+    put_template(tmp_path, text="{ 这不是 JSON")
+    with StubEngine() as engine:
+        cfg = make_config(tmp_path, port=engine.port)
+
+        result = checks(cfg)["templates"]
+
+    assert result.status is Status.FAIL
+    assert "fish-txt2img.json" in result.detail
+
+
+def test_templates_are_skipped_with_a_warning_when_the_engine_is_away(tmp_path):
+    """引擎没起：WARN 而不是 FAIL —— 引擎本身有单独一项在报，这里不重复喊。"""
+    put_template(tmp_path)
+    cfg = make_config(tmp_path, port=dead_port())
+
+    result = checks(cfg)["templates"]
+
+    assert result.status is Status.WARN
+    assert "连不上" in result.detail
+
+
 # ── 素材 ──────────────────────────────────────────────────────────────
 
 
@@ -355,7 +432,7 @@ def test_every_check_has_a_key(tmp_path):
 
     keys = {r.key for r in run_doctor(cfg)}
 
-    assert keys == {"engine", "weights", "nodes", "assets", "output"}
+    assert keys == {"engine", "weights", "nodes", "templates", "assets", "output"}
 
 
 def test_cli_doctor_exits_1_when_something_fails(tmp_path, capsys):
@@ -369,6 +446,7 @@ def test_cli_doctor_exits_1_when_something_fails(tmp_path, capsys):
 
 def test_cli_exits_nonzero_when_something_is_only_unconfigured(tmp_path, capsys):
     """没配 ≠ 通过。引擎活着但 comfy.root 空着，退出码也得非 0。"""
+    put_template(tmp_path)  # 模板对账得是绿的，否则这里会多出一条 FAIL
     with engine_answering() as port:
         make_config(tmp_path, port=port)  # 没配 comfy.root，也没配素材根
 
@@ -381,6 +459,7 @@ def test_cli_exits_nonzero_when_something_is_only_unconfigured(tmp_path, capsys)
 
 
 def test_cli_doctor_exits_0_when_everything_is_ready(tmp_path, capsys):
+    put_template(tmp_path)
     with engine_answering() as port:
         root = build_engine_root(tmp_path)
         pool = tmp_path / "素材池"

@@ -108,21 +108,25 @@ python main.py          # → 127.0.0.1:8188
 ```
 lab/
 ├── config.py       读 config/default.toml + local.toml，深合并
-├── doctor.py       环境体检（五项检查，只读为主）
+├── doctor.py       环境体检（六项检查，只读为主）
 ├── cli.py          命令行入口
 ├── paths.py        素材后缀表与排除规则（零依赖，体检与索引共用）
 ├── assets.py       素材扫描与索引（只读引用）
 ├── comfy.py        ComfyUI HTTP 客户端（提交 / 轮询 / 取回）
 ├── stub.py         假引擎（无显卡也能端到端调试）
 ├── workflows.py    模板加载 + 参数注入
-└── pipeline.py     串起出图：套模板 → 提交 → 等 → 取回 → 按 fish-NNN 落盘
+├── contract.py     模板与引擎的节点清单对账（纯规则，不联网）
+├── pipeline.py     串起出图：套模板 → 提交 → 等 → 取回 → 按 fish-NNN 落盘
+└── postprocess.py  后处理：去背出透明底贴纸
 ```
 
 （`config.py`、`doctor.py`、`cli.py`、`paths.py`、`assets.py`、`comfy.py`、`stub.py` 已落地 —— 见 #5、#13、#6；`workflows.py` 与 `pipeline.py` 见 #7；`postprocess.py` 的去背见 #9；`registry.py` 按 #11。）
 
 **3) `lab doctor`：环境体检**
 
-第一个要写的命令，比 `make` 更早。检查：ComfyUI 连通性、4 个权重文件是否在位、`custom_nodes` 是否装齐、素材根目录是否可达、输出目录是否可写。**没有它，后面每个错误都要用十分钟去猜。**
+第一个要写的命令，比 `make` 更早。检查六项：ComfyUI 连通性、4 个权重文件是否在位、`custom_nodes` 是否装齐、模板与引擎的节点清单对不对得上、素材根目录是否可达、输出目录是否可写。**没有它，后面每个错误都要用十分钟去猜。**
+
+最后那一项（`contract.py` + `doctor.check_templates`）是 #9 之后补的：模板是**手写**的 API 格式 JSON，节点类名、输入键、连线的类型与下标、下拉候选值（模型名、采样器名）任何一处写错，都要等提交时才被引擎拒；现在体检就报，还顺带说出"引擎认的是什么"。
 
 ### 完成标志
 
@@ -138,7 +142,7 @@ python -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
 
 ### 风险
 
-- **工作流脆性**：节点 ID 会变、`_meta.title` 可能被 ComfyUI 重写、不同版本导出格式有细微差异。缓解：`lab doctor` 里加一项"工作流模板完整性检查"（必需标题是否都在）。
+- **工作流脆性**：节点 ID 会变、`_meta.title` 可能被 ComfyUI 重写、不同版本导出格式有细微差异。缓解：`lab doctor` 的「模板契约」一项对着引擎的 `/object_info` 核对（节点类、输入键、连线的类型与下标、下拉候选值），`tests/test_workflows.py` 钉死必需标题，`scripts/check_docs.py` 保证 design.md 的标题集合与 `lab.workflows` 的常量两处一致。
 - ComfyUI 的输出是写到它自己的 `output/` 目录的，工作台需要从 `/history` 拿到文件名后**搬运或引用**到自己 `output/` 下。搬运策略要早定（建议：搬运，不引用——ComfyUI 的 output 目录你迟早会清）。
 
 ---
@@ -280,7 +284,7 @@ python -m lab caption output/2026-10-22/fish-001.sticker.png --text "你好呀"
 
 1. **`hf-mirror` 的 `/api/models/` 路径不可用**——返回空，被代理拦。下载只能用 resolve 直链或指定具体文件名。
 2. **ComfyUI 的输出会落在它自己的 `output/`**——工作台要主动搬运，别指望它写到你指定的目录。
-3. **工作流节点 ID 会漂**——一律用 `_meta.title` 定位。
+3. **工作流节点 ID 会漂**——一律用 `_meta.title` 定位。手写的模板先用 `lab doctor` 对着引擎的 `/object_info` 对一遍：节点包没装齐、输入键抄错、下拉里没有那个候选值，它当场就说，不用等到提交吃 400。
 4. **同 seed 不保证跨版本一致**——配方里记 `comfyui_version`。
 5. **16 GB 是"够用"不是"宽裕"**——同时开浏览器、编辑器、GUI 服务时，VAE 解码峰值可能顶上去。出图时别开别的大内存程序。
 6. **素材是引用不是复制**——移动或重命名原始素材目录会让索引失效。索引里存路径，路径变了要重扫。

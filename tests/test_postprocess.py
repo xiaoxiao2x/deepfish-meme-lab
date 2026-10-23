@@ -299,7 +299,7 @@ def _twin_repo(tmp_path: Path, port: int) -> Path:
 
 
 def test_cli_sticker_writes_an_rgba_png(tmp_path, capsys):
-    """验收判据 1 与 2：命令跑通，产物确实是带 alpha 通道的 RGBA。"""
+    """验收判据 1 与 2：命令跑通，成品确实是带 alpha 通道的 RGBA。"""
     from PIL import Image
 
     from lab.cli import main

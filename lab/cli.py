@@ -196,7 +196,7 @@ class _MakeProgress:
 
     def start(self, index: int, total: int, seed: int) -> None:
         self._last = 0.0
-        print(f"[{index}/{total}] 出图中 · 种子 {seed}", file=self._stream, flush=True)
+        print(f"[{index}/{total}] 生成中 · 种子 {seed}", file=self._stream, flush=True)
 
     def waiting(self, index: int, total: int, elapsed: float) -> None:
         if elapsed < self.QUIET_UNTIL:

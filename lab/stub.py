@@ -15,10 +15,10 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 from urllib.parse import parse_qs, urlparse
 
-__all__ = ["STUB_FILENAME", "StubEngine", "default_image"]
+__all__ = ["STUB_FILENAME", "STUB_OBJECT_INFO", "StubEngine", "default_image"]
 
 STUB_FILENAME = "fish-stub_00001_.png"
 
@@ -41,6 +41,174 @@ REJECTION = {
             ],
             "class_type": "UNETLoader",
         }
+    },
+}
+
+
+#: 引擎的节点清单（真机 `/object_info` 的缩样）：只留三份模板用到的节点，字段照
+#: ComfyUI 0.42 + ComfyUI-RMBG 3.3 抄。契约对账（lab.contract）拿它比对，测试就不必
+#: 去连真引擎。抄的是「长什么样」，不是「有哪些节点」—— 真机多出来的节点这里没有，
+#: 那正常：对账只认模板里出现过的那些。
+STUB_OBJECT_INFO: dict[str, Any] = {
+    "LoadImage": {
+        "input": {"required": {"image": [["example.png"], {"image_upload": True}]}},
+        "output": ["IMAGE", "MASK"],
+        "output_name": ["IMAGE", "MASK"],
+    },
+    "BiRefNetRMBG": {
+        "input": {
+            "required": {
+                "image": ["IMAGE"],
+                "model": [["BiRefNet-general", "BiRefNet-portrait", "Lucida"]],
+            },
+            "optional": {
+                "sensitivity": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0}],
+                "mask_blur": ["INT", {"default": 0, "min": 0, "max": 64}],
+                "mask_offset": ["INT", {"default": 0, "min": -20, "max": 20}],
+                "invert_output": ["BOOLEAN", {"default": False}],
+                "refine_foreground": ["BOOLEAN", {"default": False}],
+                "unload_model": ["BOOLEAN", {"default": False}],
+                "background": [["Alpha", "Color"], {"default": "Alpha"}],
+                "background_color": ["COLORCODE", {"default": "#222222"}],
+            },
+        },
+        "output": ["IMAGE", "MASK", "IMAGE"],
+        "output_name": ["IMAGE", "MASK", "MASK_IMAGE"],
+    },
+    "SaveImage": {
+        "input": {
+            "required": {
+                "images": ["IMAGE"],
+                "filename_prefix": ["STRING", {"default": "ComfyUI"}],
+            }
+        },
+        "output": ["IMAGE"],
+    },
+    "UNETLoader": {
+        "input": {
+            "required": {
+                "unet_name": [
+                    ["flux-2-klein-base-4b-fp8.safetensors", "flux-2-klein-4b-fp8.safetensors"]
+                ],
+                "weight_dtype": [["default", "fp8_e4m3fn"]],
+            }
+        },
+        "output": ["MODEL"],
+    },
+    "CLIPLoader": {
+        "input": {
+            "required": {
+                "clip_name": [["qwen_3_4b.safetensors"]],
+                "type": [["stable_diffusion", "flux", "flux2"]],
+            },
+            "optional": {"device": [["default", "cpu"]]},
+        },
+        "output": ["CLIP"],
+    },
+    "VAELoader": {
+        "input": {"required": {"vae_name": [["flux2-vae.safetensors", "pixel_space"]]}},
+        "output": ["VAE"],
+    },
+    "CLIPTextEncode": {
+        "input": {
+            "required": {
+                "text": ["STRING", {"multiline": True, "dynamicPrompts": True}],
+                "clip": ["CLIP"],
+            }
+        },
+        "output": ["CONDITIONING"],
+    },
+    "EmptyFlux2LatentImage": {
+        "input": {
+            "required": {
+                "width": ["INT", {"default": 1024, "min": 16, "max": 16384, "step": 16}],
+                "height": ["INT", {"default": 1024, "min": 16, "max": 16384, "step": 16}],
+                "batch_size": ["INT", {"default": 1, "min": 1, "max": 4096}],
+            }
+        },
+        "output": ["LATENT"],
+    },
+    "Flux2Scheduler": {
+        "input": {
+            "required": {
+                "steps": ["INT", {"default": 20, "min": 1, "max": 4096}],
+                "width": ["INT", {"default": 1024, "min": 16, "max": 16384}],
+                "height": ["INT", {"default": 1024, "min": 16, "max": 16384}],
+            }
+        },
+        "output": ["SIGMAS"],
+    },
+    # 这一条是真机的**新形态**：候选藏在 opts 里，不是老式的 [[...], {...}]
+    "KSamplerSelect": {
+        "input": {
+            "required": {
+                "sampler_name": [
+                    "COMBO",
+                    {"multiselect": False, "options": ["euler", "heun", "dpmpp_2m"]},
+                ]
+            }
+        },
+        "output": ["SAMPLER"],
+    },
+    "CFGGuider": {
+        "input": {
+            "required": {
+                "model": ["MODEL"],
+                "positive": ["CONDITIONING"],
+                "negative": ["CONDITIONING"],
+                "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0}],
+            }
+        },
+        "output": ["GUIDER"],
+    },
+    "RandomNoise": {
+        "input": {
+            "required": {
+                "noise_seed": ["INT", {"default": 0, "min": 0, "max": 18446744073709551615}]
+            }
+        },
+        "output": ["NOISE"],
+    },
+    "SamplerCustomAdvanced": {
+        "input": {
+            "required": {
+                "noise": ["NOISE"],
+                "guider": ["GUIDER"],
+                "sampler": ["SAMPLER"],
+                "sigmas": ["SIGMAS"],
+                "latent_image": ["LATENT"],
+            }
+        },
+        "output": ["LATENT", "LATENT"],
+    },
+    "SplitSigmasDenoise": {
+        "input": {
+            "required": {
+                "sigmas": ["SIGMAS"],
+                "denoise": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0}],
+            }
+        },
+        "output": ["SIGMAS", "SIGMAS"],
+    },
+    "VAEEncode": {
+        "input": {"required": {"pixels": ["IMAGE"], "vae": ["VAE"]}},
+        "output": ["LATENT"],
+    },
+    "VAEDecode": {
+        "input": {"required": {"samples": ["LATENT"], "vae": ["VAE"]}},
+        "output": ["IMAGE"],
+    },
+    "ImageScale": {
+        "input": {
+            "required": {
+                "image": ["IMAGE"],
+                "upscale_method": [["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]],
+                "width": ["INT", {"default": 512, "min": 0, "max": 16384}],
+                "height": ["INT", {"default": 512, "min": 0, "max": 16384}],
+                "crop": [["disabled", "center"]],
+            }
+        },
+        "output": ["IMAGE"],
     },
 }
 
@@ -184,6 +352,10 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/object_info":
+            self._json(200, self.engine.object_info)
+            return
+
         if parsed.path.startswith("/history/"):
             prompt_id = parsed.path.rsplit("/", 1)[-1]
             entry = self.engine.history_entry(prompt_id)
@@ -231,6 +403,7 @@ class StubEngine:
         filename: str = STUB_FILENAME,
         image: bytes | None = None,
         mode: str = "RGB",
+        object_info: dict[str, Any] | None = None,
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
@@ -239,6 +412,8 @@ class StubEngine:
         self.filename = filename
         # mode 只在没给 image 时有意义：给了图就以那张图为准
         self.image = image if image is not None else default_image(mode)
+        # 节点清单也一样：给了就用给的，测试拿它捏「引擎上和模板不一样」的场面
+        self.object_info = STUB_OBJECT_INFO if object_info is None else object_info
 
         self.host = host
         self.port = port  # 0 = 让系统挑一个

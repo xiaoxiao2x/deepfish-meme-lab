@@ -118,6 +118,19 @@ class EngineClient:
                 return str(system["comfyui_version"])
         return "未知"
 
+    def object_info(self) -> dict[str, Any]:
+        """引擎认得的全部节点：类名 → 它的输入输出声明。
+
+        模板里写的每个节点类、每个输入键、每条连线的类型，最终都得由这份清单认账。
+        拿它做一次只读对账（lab.contract），比等到提交时才吃 400 强得多 —— 提交
+        失败只告诉你「哪个节点错了」，对账能说出「错在哪、引擎认的是什么」。
+        连不上会抛 EngineUnreachable。
+        """
+        data = _decode(self._request("/object_info"))
+        if not isinstance(data, dict) or not data:
+            raise EngineError("引擎给的节点清单不像 /object_info 的回应，拿它核不了模板")
+        return data
+
     def submit(self, prompt: dict, client_id: str | None = None) -> str:
         """提交一个 workflow（API 格式），拿回 prompt_id。"""
         payload: dict[str, Any] = {"prompt": prompt}

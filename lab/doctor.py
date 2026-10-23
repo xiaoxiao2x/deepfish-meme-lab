@@ -1,6 +1,6 @@
 """体检：一次跑完，把环境里缺的东西全说清楚。
 
-为什么它比出图命令更早存在 —— 没有它的时候，每一个环境错误（权重没下完、
+为什么它比生成命令更早存在 —— 没有它的时候，每一个环境错误（权重没下完、
 节点没装、引擎没起）都要花十分钟去猜。有了它，一条命令给出全部答案。
 
 检查读的是真实状态（HTTP 端口、文件、目录），报的是人话。唯一的例外是
@@ -19,8 +19,10 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from . import workflows
 from .comfy import EngineClient, EngineError, EngineUnreachable
 from .config import Config
+from .contract import problems as template_problems
 from .paths import iter_image_files
 
 __all__ = ["CheckResult", "Status", "has_failures", "is_ready", "run_doctor"]
@@ -170,6 +172,70 @@ def check_nodes(cfg: Config) -> CheckResult:
     )
 
 
+# ── 模板契约 ──────────────────────────────────────────────────────────
+
+
+def declared_templates(cfg: Config) -> list[str]:
+    """配置里点过名的模板文件（去重、保序）—— 只体检真会被用到的那几份。"""
+    names: list[str] = []
+    for name in (cfg.workflows.default, cfg.workflows.img2img, cfg.workflows.sticker):
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def check_templates(cfg: Config, client: EngineClient | None = None) -> CheckResult:
+    """模板与引擎的节点清单对账（lab.contract）。
+
+    这是唯一一项「模板文件没改、但引擎那边变了」的检查：节点包装错、节点升级改名、
+    模型文件没放进引擎的目录，都只在这对账里现形。引擎不在就跳过（WARN，不是 FAIL）
+    —— 引擎本身是单独一项检查，不必在这里重复报一遍。
+
+    client 可以注入：测试拿 StubEngine 顶替真引擎。
+    """
+    key, label = "templates", "模板契约"
+    names = declared_templates(cfg)
+    if not names:
+        return _unconfigured(key, label, "默认配置里没有模板清单")
+
+    where = f"{cfg.comfy.host}:{cfg.comfy.port}"
+    if client is None:
+        # 和 check_engine 一样用探测超时：体检不该等十分钟
+        client = EngineClient(
+            host=cfg.comfy.host, port=cfg.comfy.port, timeout=cfg.comfy.probe_timeout
+        )
+    try:
+        object_info = client.object_info()
+    except EngineUnreachable:
+        return CheckResult(
+            key, label, Status.WARN,
+            f"连不上 {where}，没法核对模板里的节点 —— 引擎起来再跑一次",
+        )
+    except EngineError as exc:
+        return CheckResult(
+            key, label, Status.WARN, f"{where} 没给出节点清单：{exc} —— 跳过核对"
+        )
+
+    found: list[str] = []
+    for name in names:
+        try:
+            workflow = workflows.load(cfg.repo_root / "workflows" / name)
+        except workflows.WorkflowError as exc:
+            found.append(str(exc))
+            continue
+        found.extend(template_problems(workflow, object_info, name=name))
+
+    if found:
+        # 一条 detail 里塞不下整份问题清单，报前三条、其余报个数
+        head = "；".join(found[:3])
+        more = f"（还有 {len(found) - 3} 处）" if len(found) > 3 else ""
+        return CheckResult(key, label, Status.FAIL, head + more)
+    return CheckResult(
+        key, label, Status.OK,
+        f"{len(names)} 份模板对得上（引擎 {len(object_info)} 个节点）",
+    )
+
+
 # ── 素材 ──────────────────────────────────────────────────────────────
 
 
@@ -213,7 +279,14 @@ def check_output(cfg: Config) -> CheckResult:
     return CheckResult(key, label, Status.OK, str(out))
 
 
-CHECKS = (check_engine, check_weights, check_nodes, check_assets, check_output)
+CHECKS = (
+    check_engine,
+    check_weights,
+    check_nodes,
+    check_templates,
+    check_assets,
+    check_output,
+)
 
 
 def run_doctor(cfg: Config) -> list[CheckResult]:
