@@ -421,6 +421,66 @@ def test_letter_names_the_output_like_the_sticker(tmp_path):
     assert target == folder / f"fish-007.{LETTERED_KIND}.png", "没贴着贴纸落、或号变了"
 
 
+# ---------- 全量记录（票 #11） ----------
+
+
+def records(tmp_path: Path):
+    from lab.registry import load_entries, record_path
+
+    return load_entries(record_path(tmp_path / "output", TODAY))
+
+
+def test_the_lettering_lands_in_the_record(tmp_path):
+    """验收判据 1：加字出来的这张也要能在当天账里查到，带着那句台词。"""
+    cfg = _cfg(tmp_path)
+    folder = cfg.paths.output_dir / TODAY.isoformat()
+    source = sticker_png(folder, name="fish-007.sticker.png")
+
+    letter(cfg, source, "你好呀", painter=RecordingPainter(), today=TODAY)
+
+    (only,) = records(tmp_path)
+    assert only.id == "fish-007"
+    assert only.kind == LETTERED_KIND
+    assert only.file.endswith(f"fish-007.{LETTERED_KIND}.png")
+    assert only.caption == "你好呀"  # glossary-ok: 字段名照 docs/design.md §6.2
+    assert (only.width, only.height) == (480, 480)
+
+
+def test_the_lettering_borrows_the_recipe_of_its_sticker(tmp_path):
+    """加字不碰引擎，能复现靠的是"上一步的参数 + 这句台词" —— 参数从同号那条借。"""
+    from lab.registry import Entry, record_path, write_entry
+
+    cfg = _cfg(tmp_path)
+    folder = cfg.paths.output_dir / TODAY.isoformat()
+    source = sticker_png(folder, name="fish-007.sticker.png")
+    write_entry(
+        record_path(cfg.paths.output_dir, TODAY),
+        Entry(
+            id="fish-007",
+            created_at="2026-10-24T02:00:00+08:00",
+            kind="sticker",
+            file="fish-007.sticker.png",
+            width=480,
+            height=480,
+            workflow="workflows/fish-txt2img.json",
+            model="flux-2-klein-base-4b-fp8.safetensors",
+            prompt="chibi blue whale girl",
+            negative="",
+            seed=12345,
+            steps=20,
+            cfg=5.0,
+            comfyui_version="0.0.0-stub",
+        ),
+    )
+
+    letter(cfg, source, "你好呀", painter=RecordingPainter(), today=TODAY)
+
+    made = {one.kind: one for one in records(tmp_path)}
+    assert made[LETTERED_KIND].seed == 12345
+    assert made[LETTERED_KIND].prompt == "chibi blue whale girl"
+    assert made[LETTERED_KIND].comfyui_version == "0.0.0-stub", "没借到引擎版本"
+
+
 def test_letter_refuses_an_animated_picture(tmp_path):
     gif = tmp_path / "anim.gif"
     gif.write_bytes(b"GIF89a")

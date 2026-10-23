@@ -28,8 +28,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from .config import Config, ConfigError
-from .naming import plan_output
+from .naming import plan_output, stage_of
 from .paths import check_still_image
+from .recording import entry_from_base, find_base, used_serials
+from .registry import load_entries, record_path, write_entry
 
 if TYPE_CHECKING:
     from PIL import ImageFont
@@ -471,8 +473,7 @@ def _missing_message(missing: tuple[str, ...], font_path: Path) -> str:
 
 def _already_lettered(source: Path) -> bool:
     """这张图是不是已经带字了。看名字里那一段：`fish-007.captioned.png`。"""
-    parts = source.name.split(".")
-    return len(parts) >= 3 and parts[-2] == LETTERED_KIND
+    return stage_of(source) == LETTERED_KIND
 
 
 def letter(
@@ -525,6 +526,32 @@ def letter(
         font=choice,
         style=style,
     )
-    target, serial = plan_output(cfg.paths.output_dir, source, today, LETTERED_KIND)
+    # 账先读一遍：源图是当天贴着号的文件时，落点沿用它的号；源图不在账上（外来图）
+    # 就按"当天最大号接着排"，这时光看目录会撞号 —— 撞出来的同号会把上一条无关
+    # 生成的种子借过来（判据 ⑥）。
+    ledger = record_path(cfg.paths.output_dir, today)
+    entries = load_entries(ledger)
+    target, serial = plan_output(
+        cfg.paths.output_dir, source, today, LETTERED_KIND, known=used_serials(entries)
+    )
     (painter or PillowPainter()).paint(source, plan, target)
-    return MadeLettering(path=target, serial=serial, from_image=source, plan=plan)
+    made = MadeLettering(path=target, serial=serial, from_image=source, plan=plan)
+
+    # 加字这一站不碰引擎，能复现的是"上一步的参数 + 这句台词"：生成那几栏从同号的
+    # 贴纸/原图那条借，画布尺寸手里就有（加字不换尺寸），不必再去读一次盘。
+    base = find_base(entries, made.id)
+    write_entry(
+        ledger,
+        entry_from_base(
+            cfg,
+            base,
+            ident=made.id,
+            path=target,
+            kind=LETTERED_KIND,
+            workflow=base.workflow if base is not None else "",
+            model=base.model if base is not None else "",
+            caption=text,  # glossary-ok: 字段名照 docs/design.md §6.2
+            size=canvas,
+        ),
+    )
+    return made

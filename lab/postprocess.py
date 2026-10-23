@@ -20,6 +20,8 @@ from .config import Config
 from .naming import plan_output
 from .paths import check_still_image
 from .pipeline import move_out, one_image, upload_name
+from .recording import engine_version, entry_from_base, find_base, used_serials
+from .registry import load_entries, record_path, write_entry
 from .workflows import apply_sticker, load, sticker_model
 
 __all__ = ["STICKER_KIND", "MadeSticker", "sticker"]
@@ -107,14 +109,19 @@ def sticker(
     result = engine.wait(prompt_id)
     engine_image = one_image(result.images, prompt_id)
 
-    target, serial = plan_output(cfg.paths.output_dir, source, today, STICKER_KIND)
+    # 账先读一遍：外来图按"当天最大号接着排"时，光看目录会撞号（判据 ⑥）。
+    ledger = record_path(cfg.paths.output_dir, today)
+    entries = load_entries(ledger)
+    target, serial = plan_output(
+        cfg.paths.output_dir, source, today, STICKER_KIND, known=used_serials(entries)
+    )
     # 先验后搬：一张假贴纸（丢了 alpha）不该落进 output/ 冒充成品。
     with tempfile.TemporaryDirectory(prefix="lab-engine-") as staging:
         fetched = engine.fetch(engine_image, Path(staging))
         _check_alpha(fetched)
         final = move_out(fetched, target)
 
-    return MadeSticker(
+    made = MadeSticker(
         path=final,
         serial=serial,
         from_image=source,
@@ -123,3 +130,19 @@ def sticker(
         prompt_id=prompt_id,
         engine_filename=engine_image.filename,
     )
+
+    # 去背这一趟也是产出，也得进当天那本账 —— 种子与提示词从源图那条借。
+    write_entry(
+        ledger,
+        entry_from_base(
+            cfg,
+            find_base(entries, made.id),
+            ident=made.id,
+            path=final,
+            kind=STICKER_KIND,
+            workflow=f"workflows/{template_name}",
+            model=made.model,
+            version=engine_version(engine),
+        ),
+    )
+    return made

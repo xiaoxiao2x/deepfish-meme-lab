@@ -7,6 +7,8 @@
     python -m lab sticker <图片>  把一张图去背成透明底贴纸
     python -m lab caption <贴纸> --text "你好呀"  # glossary-ok: 子命令名，docs/roadmap.md:165 定死的对外接口
                                   给贴纸印一句台词，同目录同序号落成 .captioned.png
+    python -m lab keep <图片>     把这张定稿搬进配方库（data/registry.json）
+    python -m lab gallery         列出配方库里留了什么
     python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
 退出码：0 = 全绿能干活；1 = 有 FAIL、有没查成的项、或有问题要处理；2 = 命令本身
@@ -30,6 +32,7 @@ from .doctor import Status, is_ready, run_doctor
 
 if TYPE_CHECKING:
     from .assets import Index
+    from .registry import Entry
 
 __all__ = ["main"]
 
@@ -48,6 +51,25 @@ def _display_width(text: str) -> int:
 def _pad(text: str, width: int) -> str:
     """按显示宽度右补空格 —— 一个汉字占两格，不能用 str.ljust。"""
     return text + " " * max(0, width - _display_width(text))
+
+
+def _shorten(text: str, width: int) -> str:
+    """超宽就截断加省略号 —— 按显示宽度算，一个汉字占两格。
+
+    表格要能一眼扫完，宁可截掉长模型名尾巴也别让整张表横向跑出去；完整的那份
+    就在 data/registry.json 里，要看原样去读文件。
+    """
+    if _display_width(text) <= width:
+        return text
+    kept = ""
+    used = 0
+    for ch in text:
+        step = _display_width(ch)
+        if used + step > width - 1:
+            break
+        kept += ch
+        used += step
+    return kept + "…"
 
 
 def _section(title: str, lines: list[str], footer: str | None = None) -> None:
@@ -362,6 +384,88 @@ def _run_lettering(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+#: 配方库表格的列宽（按显示宽度算）。模型名最容易超，给最长，其余刚好够放。
+GALLERY_COLUMNS = (("号", 10), ("阶段", 9), ("模型", 26), ("种子", 11), ("留的时间", 17))
+
+
+def _when(stamp: str) -> str:
+    """把 ISO 时间裁成表里放得下的那一截：`2026-10-24 02:05`。
+
+    秒和时区对"什么时候留的"没有信息量，留在 JSON 里就够了。
+    """
+    return stamp.replace("T", " ")[:16] if stamp else "—"
+
+
+def _print_gallery(entries: list[Entry]) -> None:
+    if not entries:
+        _section(
+            "鱼片加工厂 · 配方库",
+            ["还没留东西。"],
+            "挑中一张就 `python -m lab keep <图片>`，它就从当天的账里搬过来。",
+        )
+        return
+
+    header = " ".join(_pad(title, width) for title, width in GALLERY_COLUMNS)
+    lines = [header, RULE]
+    for one in entries:
+        cells = {
+            "号": one.id,
+            "阶段": one.kind,
+            "模型": _shorten(one.model or "—", 26),
+            "种子": str(one.seed),
+            "留的时间": _when(one.created_at),
+        }
+        lines.append(
+            " ".join(_pad(cells[title], width) for title, width in GALLERY_COLUMNS)
+        )
+    _section(
+        "鱼片加工厂 · 配方库",
+        lines,
+        f"{len(entries)} 条，库里就是这些。按配方重跑还没做（见 #12）。",
+    )
+
+
+def _run_keep(config: Config, args: argparse.Namespace) -> int:
+    """`lab keep` —— 挑中的那张从当天账里搬进配方库（票 #11）。
+
+    全量记录里全是废图与半成品，配方库只收定稿；"保留"就是这一条命令做的事。
+    """
+    from .keeping import keep
+    from .registry import library_path
+
+    try:
+        entry, traced = keep(config, args.image)
+    except ValueError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    library = library_path(config.repo_root)
+    print()
+    if traced:
+        print(f"已留：{entry.id}.{entry.kind}  ←  当天的记录")
+    else:
+        # 说实话而不是假装：没有来路的那条，将来重不出同一张，得让人当场知道。
+        print(f"已留：{entry.id}.{entry.kind}  ←  当天账里没有它的来路")
+        print("  生成参数那一栏是空的（种子 0、模型空）—— 这张不是工作台出的，")
+        print("  或者账被清走了。要能重跑，得留着出它的那次记录。")
+    print(f"  落点 {entry.file}")
+    print(f"  配方库 {library}")
+    return 0
+
+
+def _run_gallery(config: Config, args: argparse.Namespace) -> int:
+    """`lab gallery` —— 配方库里留了什么，一张表看完（票 #11）。"""
+    from .keeping import gallery
+
+    try:
+        entries = gallery(config)
+    except ValueError as exc:
+        print(f"配方库读不出来：{exc}", file=sys.stderr)
+        return 2
+    _print_gallery(entries)
+    return 0
+
+
 def _run_stub(config: Config, args: argparse.Namespace) -> int:
     """起假引擎。没有显卡、权重还没下完的时候，靠它把工作台这一段走通。"""
     from .stub import StubEngine
@@ -473,6 +577,18 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
         help="要印上去的台词：太长会自动折行，压在下沿居中",
     )
 
+    keep_parser = subparsers.add_parser(
+        "keep",
+        help="把这张定稿搬进配方库（从当天的全量记录里抄参数，进 git 的那本就是它）",
+    )
+    keep_parser.add_argument(
+        "image", help="要保留的那张图：可以是原图、贴纸、带字成图里的任意一张"
+    )
+
+    subparsers.add_parser(
+        "gallery", help="列出配方库里留了什么（号 / 阶段 / 模型 / 种子 / 时间）"
+    )
+
     stub_parser = subparsers.add_parser(
         "stub", help="起一个假引擎（无显卡也能端到端调试）"
     )
@@ -514,6 +630,12 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     if args.command == "caption":  # glossary-ok: 子命令名，与上面的 add_parser 对应
         return _run_lettering(config, args)
+
+    if args.command == "keep":
+        return _run_keep(config, args)
+
+    if args.command == "gallery":
+        return _run_gallery(config, args)
 
     if args.command == "stub":
         return _run_stub(config, args)

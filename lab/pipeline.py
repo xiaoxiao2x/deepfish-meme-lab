@@ -25,7 +25,9 @@ from .comfy import EngineClient, GeneratedImage
 from .config import Config
 from .naming import daily_dir, next_serial, output_name
 from .paths import check_image_file
-from .workflows import GenSpec, apply, load
+from .recording import engine_version, entry_for_gen, repo_relative, used_serials
+from .registry import EntrySource, load_entries, record_path, write_entry
+from .workflows import GenSpec, apply, load, model_name
 
 __all__ = [
     "IMAGE_KIND",
@@ -216,7 +218,13 @@ def make(
 
     out_dir = daily_dir(cfg.paths.output_dir, today)
     out_dir.mkdir(parents=True, exist_ok=True)
-    serial = next_serial(out_dir)
+    ledger = record_path(cfg.paths.output_dir, today)
+    # 号只增不收：目录里的号 + 当天记录里用过的号，取两者最大值再往前一格。
+    # 只看目录的话，废图清走之后号会被回收，两条不同的生成顶着同一个 id。
+    serial = next_serial(out_dir, known=used_serials(load_entries(ledger)))
+    template_name = _template_name(cfg, spec)
+    version = engine_version(engine)
+    model = model_name(template)
 
     targets = _specs(spec, total, seed)
     made: list[MadeImage] = []
@@ -254,6 +262,28 @@ def make(
             prompt_id=prompt_id,
             engine_filename=image.filename,
             source=source,
+        )
+        source_entry = None
+        if source is not None:
+            source_entry = EntrySource(
+                type=source.type,
+                image=repo_relative(cfg, source.image),
+                denoise=source.denoise,
+            )
+        # 一张一落账，不攒到整批结束：这张已经成了，就不该被下一张的失败带走。
+        write_entry(
+            ledger,
+            entry_for_gen(
+                cfg,
+                ident=record.id,
+                path=final,
+                kind=IMAGE_KIND,
+                spec=one,
+                workflow=f"workflows/{template_name}",
+                model=model,
+                version=version,
+                source=source_entry,
+            ),
         )
         made.append(record)
         report.done(index, total, final, one.seed)

@@ -101,6 +101,15 @@ class RecordingEngine:
         return resolved
 
 
+class BreaksOnSecond(RecordingEngine):
+    """第一张正常出，第二张当场炸 —— 用来验"已经出成的那张不会跟着丢"。"""
+
+    def submit(self, prompt: dict, client_id: str | None = None) -> str:
+        if self._counter >= 1:
+            raise RuntimeError("引擎在第 2 张上炸了")
+        return super().submit(prompt, client_id)
+
+
 class BatchedEngine(RecordingEngine):
     """一次提交回来 N 张图的引擎 —— 模拟模板里把 batch_size 改大。"""
 
@@ -125,10 +134,24 @@ class BatchedEngine(RecordingEngine):
 
 
 def _run(tmp_path: Path, engine=None, spec_kwargs=None, **kwargs):
+    """在 tmp 里当一个完整的小仓库跑一遍：output/ 与 workflows/ 都在这儿。
+
+    仓库根也挪到 tmp，是为了让记录里的 file 真的相对仓库根 ——
+    留在真仓库而只换 output_dir 的话，记录写出来会是绝对路径。
+    """
     from dataclasses import replace
 
+    template_dir = tmp_path / "workflows"
+    if not template_dir.exists():
+        template_dir.parent.mkdir(parents=True, exist_ok=True)
+        template_dir.symlink_to(REPO_ROOT / "workflows")
+
     cfg = load_config(REPO_ROOT)
-    cfg = replace(cfg, paths=replace(cfg.paths, output_dir=tmp_path / "output"))
+    cfg = replace(
+        cfg,
+        repo_root=tmp_path,
+        paths=replace(cfg.paths, output_dir=tmp_path / "output"),
+    )
     return make(
         cfg,
         spec(**(spec_kwargs or {})),
@@ -165,6 +188,112 @@ def test_serials_continue_after_existing_files(tmp_path):
     made = _run(tmp_path, count=2)
 
     assert [p.path.name for p in made] == ["fish-008.orig.png", "fish-009.orig.png"]
+
+
+# ---------- 全量记录（票 #11） ----------
+
+
+def records(tmp_path: Path):
+    from lab.registry import load_entries, record_path
+
+    return load_entries(record_path(tmp_path / "output", date(2026, 10, 23)))
+
+
+def test_every_image_of_the_day_lands_in_the_record(tmp_path):
+    """验收判据 1：出完当天就能查到每张的种子与完整参数。"""
+    made = _run(tmp_path, count=3)
+
+    logged = records(tmp_path)
+    assert [one.id for one in logged] == ["fish-001", "fish-002", "fish-003"]
+    assert [one.seed for one in logged] == [one.spec.seed for one in made]
+    first = logged[0]
+    assert (first.kind, first.steps, first.cfg) == ("orig", 20, 5.0)
+    assert first.prompt == "chibi blue whale girl"
+
+
+def test_the_record_points_at_the_picture_it_describes(tmp_path):
+    """记录里存的是相对仓库根的路径 —— 仓库挪个位置，账还读得懂。"""
+    _run(tmp_path, count=1)
+
+    (only,) = records(tmp_path)
+    assert only.file.endswith("2026-10-23/fish-001.orig.png")
+    assert not Path(only.file).is_absolute()
+
+
+def test_the_record_sizes_the_picture(tmp_path):
+    """宽高从图里量出来 —— 站上要用，回执里也省得再开一次图。"""
+    _run(tmp_path, count=1)
+
+    (only,) = records(tmp_path)
+    assert (only.width, only.height) == (8, 8)
+
+
+def test_the_record_keeps_the_size_that_was_asked_for(tmp_path):
+    """请求尺寸单独记一笔：成品量出来的是引擎给的结果，未必等于喂进去的数。
+
+    假引擎回的永远是 8×8，而 spec 要的是 1024 —— 两个数都得在账上，
+    否则重跑时只能照着成品的尺寸喂，等于把当时的请求改掉了。
+    """
+    _run(tmp_path, count=1)
+
+    (only,) = records(tmp_path)
+    assert (only.requested_width, only.requested_height) == (1024, 1024)
+    assert (only.width, only.height) == (8, 8)
+
+
+def test_the_record_names_the_template_that_made_it(tmp_path):
+    _run(tmp_path, count=1)
+
+    (only,) = records(tmp_path)
+    assert only.workflow == "workflows/fish-txt2img.json"
+    assert only.model == "flux-2-klein-base-4b-fp8.safetensors"
+
+
+def test_the_record_carries_the_base_image_and_the_denoise(tmp_path):
+    """有底图的那批，重绘强度得跟着记录走 —— 它是那张图上唯一的旋钮。"""
+    init = base_image(tmp_path)
+    _run(tmp_path, count=1, spec_kwargs={"init_image": init, "denoise": 0.4})
+
+    (only,) = records(tmp_path)
+    assert only.source is not None
+    assert only.source.denoise == 0.4
+    assert only.source.image == init.relative_to(tmp_path).as_posix()
+
+
+def test_a_pure_text_run_records_no_source(tmp_path):
+    _run(tmp_path, count=1)
+
+    (only,) = records(tmp_path)
+    assert only.source is None
+
+
+def test_a_second_batch_the_same_day_does_not_reuse_a_serial(tmp_path):
+    """验收判据 6：同一天多批生成，编号不冲突。
+
+    中间把图清走了（废图就是这么处理的）—— 光看目录会从 001 重来，
+    两条不同的生成顶着同一个 id，事后不知道该信哪一条。
+    """
+    _run(tmp_path, count=2)
+    folder = tmp_path / "output" / "2026-10-23"
+    for path in folder.glob("fish-*.png"):
+        path.unlink()
+
+    _run(tmp_path, count=2)
+
+    assert [one.id for one in records(tmp_path)] == [
+        "fish-001",
+        "fish-002",
+        "fish-003",
+        "fish-004",
+    ]
+
+
+def test_a_failed_batch_keeps_what_already_came_out(tmp_path):
+    """第 2 张炸了，第 1 张的记录不能跟着丢 —— 已经出成的图本来就留着了。"""
+    with pytest.raises(RuntimeError):
+        _run(tmp_path, count=2, engine=BreaksOnSecond())
+
+    assert [one.id for one in records(tmp_path)] == ["fish-001"]
 
 
 # ---------- 搬运，不是引用 ----------
@@ -441,7 +570,7 @@ def test_cli_make_creates_the_daily_folder(tmp_path, capsys):
     folders = [p for p in (repo / "output").iterdir() if p.is_dir()]
     assert len(folders) == 1
     assert folders[0].name == date.today().isoformat()
-    assert [f.name for f in folders[0].iterdir()] == ["fish-001.orig.png"]
+    assert [f.name for f in folders[0].glob("*.png")] == ["fish-001.orig.png"]
 
 
 def test_cli_make_needs_a_prompt(tmp_path, capsys):

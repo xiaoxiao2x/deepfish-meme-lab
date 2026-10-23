@@ -151,7 +151,7 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
   "createdAt": "2026-10-22T00:31:05+08:00",
   "kind": "sticker",                   // orig | sticker | captioned
   "file": "output/2026-10-22/fish-001.sticker.png",
-  "width": 240, "height": 240,
+  "width": 240, "height": 240,          // 成品量出来的像素
   "animated": false,
 
   // 复现所需
@@ -161,6 +161,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
   "negative": "",
   "seed": 123456,
   "steps": 50, "cfg": 3.5,
+  "comfyuiVersion": "0.3.61",          // 同种子在不同引擎版本下不保证一致，复现前先比这个
+  "requestedWidth": 1024,               // 请求生成时填进「尺寸」节点的值
+  "requestedHeight": 1024,              // 成品被引擎缩过之后两者会分家，重跑照这一对喂
   "source": {                          // 为空表示纯文生图
     "type": "img2img",                 // img2img | reference
     "image": "/home/xiao/workspace/www/image/media/xxxx.webp",
@@ -174,6 +177,8 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 ```
 
 - `id` / `width` / `height` / `animated` 沿用 deepWhale-MemeHub `stickers.json` 的同名语义，方便将来万一要上站时直接对接。
+- `width`/`height` 描述的是**真实文件**，`requestedWidth`/`requestedHeight` 是**当时请求的**——引擎缩图或手工裁过之后两者不同，只记成品那一对会让重跑照着错的大小喂引擎。外来图（不知道请求值）两个字段写 `0`。
+- `kind` 在 `orig | sticker | captioned` 之外还有一种 `imported`：`keep` 收进来的图如果当天的账里没有它的来路（对着素材库的图直接留、或者账被清走了），就记成 `imported`——它照样进配方库，但那几栏生成参数是空的，重跑不出来。
 - **`src` / `preview` / `large` 三个字段本阶段恒为 `null`**——它们是"站点资源路径"，本工作台不做站。留着是零成本的语义占位，不是预留接口。
 
 ### 6.3 工作流模板与参数注入

@@ -221,6 +221,24 @@ def apply_sticker(workflow: dict, engine_name: str) -> dict:
     return prompt
 
 
+#: 模型名在什么输入上：UNETLoader 叫 unet_name，CheckpointLoaderSimple 叫 ckpt_name。
+#: 两样都认，是因为模板换成哪一种都不该让配方里的 model 变成空串。
+MODEL_INPUT_KEYS = ("unet_name", "ckpt_name")
+
+
+def model_name(workflow: dict) -> str:
+    """模板里写着的那只模型，读出来记进配方；一个都没有就返回空串。
+
+    只读：模型跟着模板走，注入那边不该碰它 —— 与 `sticker_model` 同一个态度。
+    """
+    for node in workflow.values():
+        inputs = node.get("inputs") or {}
+        for key in MODEL_INPUT_KEYS:
+            if inputs.get(key):
+                return str(inputs[key])
+    return ""
+
+
 def sticker_model(prompt: dict) -> str:
     """去背模板里写着的那只模型，读出来给回执用；没有就返回空串。
 

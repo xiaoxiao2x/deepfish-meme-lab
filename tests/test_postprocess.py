@@ -180,6 +180,71 @@ def test_sticker_walks_the_whole_way_against_the_stub_engine(tmp_path):
         assert image.getpixel((0, 0))[3] == 0
 
 
+# ---------- 全量记录（票 #11） ----------
+
+
+def records(tmp_path: Path):
+    from lab.registry import load_entries, record_path
+
+    return load_entries(record_path(tmp_path / "output", TODAY))
+
+
+def test_the_sticker_lands_in_the_record(tmp_path):
+    """验收判据 1：去背出来的这张也要能在当天账里查到。"""
+    sticker(_cfg(tmp_path), picture(tmp_path), client=RecordingStickerEngine(), today=TODAY)
+
+    (only,) = records(tmp_path)
+    assert only.id == "fish-001"
+    assert only.kind == "sticker"
+    assert only.file.endswith("2026-10-24/fish-001.sticker.png")
+    assert (only.width, only.height) == (16, 16)
+
+
+def test_the_sticker_records_which_template_made_it(tmp_path):
+    """复现要知道是哪只模型去背的 —— 记的是模板里那只，不是文件后缀。"""
+    sticker(_cfg(tmp_path), picture(tmp_path), client=RecordingStickerEngine(), today=TODAY)
+
+    (only,) = records(tmp_path)
+    assert only.workflow == "workflows/fish-sticker.json"
+    assert only.model == "Lucida"
+
+
+def test_the_sticker_borrows_the_recipe_of_its_original(tmp_path):
+    """贴纸的 prompt 与种子不是它自己的，是它那张原图的 —— 从当天账里借。"""
+    from lab.registry import Entry, record_path, write_entry
+
+    folder = tmp_path / "output" / TODAY.isoformat()
+    folder.mkdir(parents=True)
+    origin = folder / "fish-001.orig.png"
+    origin.write_bytes(png_bytes())
+    write_entry(
+        record_path(tmp_path / "output", TODAY),
+        Entry(
+            id="fish-001",
+            created_at="2026-10-24T02:00:00+08:00",
+            kind="orig",
+            file="fish-001.orig.png",
+            width=16,
+            height=16,
+            workflow="workflows/fish-txt2img.json",
+            model="flux-2-klein-base-4b-fp8.safetensors",
+            prompt="chibi blue whale girl",
+            negative="",
+            seed=12345,
+            steps=20,
+            cfg=5.0,
+            comfyui_version="0.0.0-stub",
+        ),
+    )
+
+    sticker(_cfg(tmp_path), origin, client=RecordingStickerEngine(), today=TODAY)
+
+    made = {one.kind: one for one in records(tmp_path)}
+    assert made["sticker"].seed == 12345
+    assert made["sticker"].prompt == "chibi blue whale girl"
+    assert made["sticker"].comfyui_version == "0.0.0-stub"
+
+
 # ---------- 交给引擎的话 ----------
 
 

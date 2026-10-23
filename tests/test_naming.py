@@ -36,6 +36,57 @@ def test_next_serial_is_one_for_a_missing_folder(tmp_path):
     assert next_serial(tmp_path / "nope") == 1
 
 
+def test_next_serial_skips_numbers_the_record_already_used(tmp_path):
+    """图被删了，号不能回收 —— 记录里 fish-007 还躺着，下一个就该是 008。"""
+    folder = tmp_path / "output" / "2026-10-23"
+    folder.mkdir(parents=True)
+    (folder / "fish-003.orig.png").write_bytes(b"x")
+
+    assert next_serial(folder, known=(3, 7)) == 8
+
+
+def test_next_serial_without_a_record_behaves_as_before(tmp_path):
+    folder = tmp_path / "output" / "2026-10-23"
+    folder.mkdir(parents=True)
+    (folder / "fish-002.orig.png").write_bytes(b"x")
+
+    assert next_serial(folder) == 3
+    assert next_serial(folder, known=()) == 3
+
+
+def test_plan_output_skips_numbers_the_record_already_used(tmp_path):
+    """账里有 fish-001、图已经清走：素材图不能又叫 fish-001。
+
+    撞出来的同号比"重名"更重：贴纸与带字成图都要按号去借上一条的参数，
+    借错一条就把无关生成的种子抄进配方。
+    """
+    cfg = _cfg(tmp_path)
+    outside = tmp_path / "素材" / "IMG-999.png"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+    (cfg.paths.output_dir / TODAY.isoformat()).mkdir(parents=True)
+
+    target, serial = plan_output(
+        cfg.paths.output_dir, outside, TODAY, "sticker", known=(1,)
+    )
+
+    assert target == cfg.paths.output_dir / TODAY.isoformat() / "fish-002.sticker.png"
+    assert serial == 2
+
+
+def test_plan_output_keeps_the_sources_number_even_with_a_record(tmp_path):
+    """源图自己就在 output/ 里时沿用它的号 —— 记录里用过的号不该把这一步挤走。"""
+    cfg = _cfg(tmp_path)
+    folder = cfg.paths.output_dir / TODAY.isoformat()
+
+    target, serial = plan_output(
+        cfg.paths.output_dir, folder / "fish-007.orig.png", TODAY, "sticker", known=(1, 2)
+    )
+
+    assert target == folder / "fish-007.sticker.png"
+    assert serial == 7
+
+
 def test_parse_serial_only_reads_fish_names():
     """外来名字（IMG-007.jpg）不算序号 —— 否则它会被当成 7 号去盖 fish-007。"""
     assert parse_serial(Path("fish-007.orig.png")) == 7
