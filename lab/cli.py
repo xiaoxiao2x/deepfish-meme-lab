@@ -70,16 +70,44 @@ def _shorten(text: str, width: int) -> str:
     return kept + "…"
 
 
+def _wrap(text: str, width: int) -> list[str]:
+    """按显示宽度折行，一个汉字算两格 —— 收尾那几句话比横线长时折开。
+
+    只在空格、标点之后优先断：中文没有词间空格，硬按宽度切会切在词中间。
+    断不开就退回硬切，总比让横线短一截、字甩到下边强。
+    """
+    if width <= 0:
+        return [text]
+    pieces: list[str] = []
+    line = ""
+    for ch in text:
+        if _display_width(line + ch) > width:
+            cut = max(line.rfind("、"), line.rfind("，"), line.rfind("。"), line.rfind(" "))
+            if cut > 0:
+                pieces.append(line[: cut + 1])
+                line = line[cut + 1 :] + ch
+            else:
+                pieces.append(line)
+                line = ch
+        else:
+            line += ch
+    if line:
+        pieces.append(line)
+    return pieces
+
+
 def _section(
     title: str,
     lines: list[str],
-    footer: str | None = None,
+    footer: str | list[str] | None = None,
     *,
     width: int = RULE_WIDTH,
 ) -> None:
-    """一段报告：标题、横线、正文、（可选）横线 + 一行收尾。
+    """一段报告：标题、横线、正文、（可选）横线 + 收尾。
 
     横线默认画 60 格；表格比这宽时按表宽画，否则表格会从横线底下漏出去。
+    收尾可以是几行（`_wrap` 折好的），横线宽度始终照 `width` —— 比正文窄的横线
+    看起来像没画完，比它宽的字会甩出去。
     """
     rule = "─" * width
     print()
@@ -89,7 +117,8 @@ def _section(
         print(line)
     if footer is not None:
         print(rule)
-        print(footer)
+        for line in [footer] if isinstance(footer, str) else footer:
+            print(line)
     print(rule)
     print()
 
@@ -440,13 +469,17 @@ def _print_gallery(entries: list[Entry]) -> None:
                 }
             )
         )
+    width = _gallery_width()
     _section(
         "鱼片加工厂 · 配方库",
         lines,
-        f"{len(entries)} 条，库里就是这些。"
-        "时间一栏是这一条落账的时刻：工作台出的图记生成那一刻，外来的图记搬进库那一刻。"
-        "按配方重跑还没做（见 #12）。",
-        width=_gallery_width(),
+        _wrap(
+            f"{len(entries)} 条，库里就是这些。"
+            "时间一栏是这一条落账的时刻：工作台出的图记生成那一刻，"
+            "外来的图记搬进库那一刻。按配方重跑还没做（见 #12）。",
+            width,
+        ),
+        width=width,
     )
 
 

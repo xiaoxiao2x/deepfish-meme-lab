@@ -25,7 +25,13 @@ from .comfy import EngineClient, GeneratedImage
 from .config import Config
 from .naming import daily_dir, next_serial, output_name
 from .paths import check_image_file
-from .recording import engine_version, entry_for_gen, repo_relative, used_serials
+from .recording import (
+    IMAGE_KIND,
+    engine_version,
+    entry_for_gen,
+    repo_relative,
+    used_serials,
+)
 from .registry import EntrySource, load_entries, record_path, write_entry
 from .workflows import GenSpec, apply, load, model_name
 
@@ -46,10 +52,6 @@ __all__ = [
 #: ComfyUI 的 noise_seed 是 64 位，但超过 2^32 的值在部分节点上会被截；
 #: 卡在 32 位整数范围内最省心，也够随机。
 MAX_SEED = 2**32 - 1
-
-#: 管线本身只出原图；去背走 postprocess、加字走 lettering，各自换掉后缀的
-#: 那一段（三段共用一个序号，见 lab/naming.py）。
-IMAGE_KIND = "orig"
 
 
 @runtime_checkable

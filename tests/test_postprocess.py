@@ -223,7 +223,9 @@ def test_the_sticker_borrows_the_recipe_of_its_original(tmp_path):
             id="fish-001",
             created_at="2026-10-24T02:00:00+08:00",
             kind="orig",
-            file="fish-001.orig.png",
+            # 账里记的是相对仓库根的路径（repo_relative 折的），写成裸文件名的话
+            # 它指的不是任何真图 —— 源图自己那条认不出来，号就会被判成"别人的"。
+            file=f"output/{TODAY.isoformat()}/fish-001.orig.png",
             width=16,
             height=16,
             workflow="workflows/fish-txt2img.json",

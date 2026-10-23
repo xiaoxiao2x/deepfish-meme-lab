@@ -22,7 +22,7 @@ from pathlib import Path
 from .config import Config
 from .naming import entry_id, parse_serial, stage_of
 from .paths import check_image_file
-from .recording import entry_from_base, repo_relative
+from .recording import entry_from_base, points_at, repo_relative
 from .registry import (
     RECORD_NAME,
     Entry,
@@ -36,7 +36,7 @@ __all__ = ["IMPORTED_KIND", "KNOWN_KINDS", "find_entry", "gallery", "keep", "kin
 
 
 #: 账里没有来路的那张图，阶段记成这个（docs/design.md §6.2 的第四种）。
-#: 留空会在 gallery 的「阶段」列留一个空格子，而且 \"\" 也不在 schema 的枚举里。
+#: 留空会在 gallery 的「阶段」列留一个空格子，而且空串也不在 schema 的枚举里。
 IMPORTED_KIND = "imported"
 
 
@@ -91,25 +91,6 @@ def _fresh_ident(kept: list[Entry], ident: str, kind: str, where: str) -> str:
     return f"{ident}-{suffix}"
 
 
-def _points_at(cfg: Config, recorded: str, image: Path) -> bool:
-    """账里记的那条是不是就是这张图。
-
-    记录里的 file 通常是相对仓库根的（`output/2026-10-24/fish-001.orig.png`），
-    也可能是画成绝对路径的旧条目 —— 两种都得认，不然人一换工作目录就 keep 不上。
-    """
-    path = Path(recorded)
-    if recorded.startswith("~"):
-        # 记录里的 `~/...` 是"在仓库外但在家目录里"那类（`repo_relative` 折出来的），
-        # 原样拼仓库根是拼不出来的，得先展开。
-        path = path.expanduser()
-    elif not path.is_absolute():
-        path = Path(cfg.repo_root) / path
-    try:
-        return path.resolve() == image.resolve()
-    except OSError:
-        return False
-
-
 def find_entry(cfg: Config, entries: list[Entry], image: Path) -> Entry | None:
     """在当天的账里找这张图那一条。先认路径，再退到（号，阶段）。
 
@@ -118,7 +99,9 @@ def find_entry(cfg: Config, entries: list[Entry], image: Path) -> Entry | None:
     """
     image = Path(image)
     for one in entries:
-        if _points_at(cfg, one.file, image):
+        # 认路径这条规则在 recording.py 里（"账里那条是不是这张图"三个站都要答），
+        # 这里只调用，不再抄一份 —— 抄出来的第二份迟早和第一份对不上。
+        if points_at(cfg, one.file, image):
             return one
     ident = _ident(image)
     kind = kind_of(image)

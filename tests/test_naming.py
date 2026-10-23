@@ -145,3 +145,58 @@ def test_plan_output_puts_a_foreign_picture_in_todays_folder(tmp_path):
 
     assert target == today_dir / "fish-005.sticker.png"
     assert serial == 5
+
+def test_a_foreign_picture_with_a_used_number_gets_a_new_one_even_without_a_record(tmp_path):
+    """账被清走（known 空）时只能看目录：那里已经有 fish-007 了，不能落成同号。"""
+    cfg = _cfg(tmp_path)
+    outside = tmp_path / "素材" / "fish-007.orig.png"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+    today_dir = cfg.paths.output_dir / TODAY.isoformat()
+    today_dir.mkdir(parents=True)
+    (today_dir / "fish-007.orig.png").write_bytes(b"x")
+
+    target, serial = plan_output(cfg.paths.output_dir, outside, TODAY, "sticker")
+
+    assert serial == 8, "目录里那个 fish-007 是别人的，不能顶掉它"
+    assert target == today_dir / "fish-008.sticker.png"
+
+
+def test_a_picture_already_in_output_keeps_its_number_even_if_the_record_knows_it(tmp_path):
+    """在 output/ 里的图一律沿用自己那个号 —— 账里记过这个号也一样。
+
+    判据是"它是不是这条链上的一环"，不是"账里有没有这个号"：给 exist 的 fish-007
+    去背，账里那条 fish-007 当然记着 7，那不构成"号被占"。"""
+    cfg = _cfg(tmp_path)
+    folder = cfg.paths.output_dir / TODAY.isoformat()
+    folder.mkdir(parents=True)
+    (folder / "fish-007.orig.png").write_bytes(b"x")
+
+    target, serial = plan_output(
+        cfg.paths.output_dir,
+        folder / "fish-007.orig.png",
+        TODAY,
+        "sticker",
+        known=(3, 7),
+    )
+
+    assert serial == 7
+    assert target == folder / "fish-007.sticker.png"
+
+
+def test_a_symlinked_output_folder_still_finds_the_pictures_own_day(tmp_path):
+    """output 是符号链接时也得认出"这张在 output 里" —— 否则跨日去背会落错目录、号还重排。
+
+    `config._resolve` 只拼不 resolve，于是 output_dir 与源图的父目录字面上不相等；
+    直接比路径就恒假，昨天的图会掉进今天那个目录。"""
+    real = tmp_path / "real-output"
+    old = real / "2026-10-22"
+    old.mkdir(parents=True)
+    (old / "fish-007.orig.png").write_bytes(b"x")
+    link = tmp_path / "output"
+    link.symlink_to(real, target_is_directory=True)
+
+    target, serial = plan_output(link, old / "fish-007.orig.png", TODAY, "sticker")
+
+    assert target == old / "fish-007.sticker.png"
+    assert serial == 7

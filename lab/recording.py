@@ -27,12 +27,14 @@ from .workflows import GenSpec
 IMAGE_KIND = "orig"
 
 __all__ = [
+    "IMAGE_KIND",
     "UNKNOWN_VERSION",
     "engine_version",
     "entry_for_gen",
     "entry_from_base",
     "find_base",
     "image_size",
+    "points_at",
     "repo_relative",
     "used_serials",
 ]
@@ -97,6 +99,24 @@ def used_serials(entries: list[Entry]) -> list[int]:
     规则放一处 —— 三处各写一遍的话，哪天改了记录的形状就会有一站悄悄不算。
     """
     return [parse_serial(Path(one.file)) or 0 for one in entries]
+
+
+def points_at(cfg: Config, recorded: str, image: Path) -> bool:
+    """账里记的那条是不是就是这张图。
+
+    记录里的 file 通常是相对仓库根的（`output/2026-10-24/fish-001.orig.png`），
+    也可能折成 `~/...`（仓库外但在家目录里），或者是画成绝对路径的旧条目 ——
+    三种都得认，不然人一换工作目录就认不出这是同一张。
+    """
+    path = Path(recorded)
+    if recorded.startswith("~"):
+        path = path.expanduser()
+    elif not path.is_absolute():
+        path = Path(cfg.repo_root) / path
+    try:
+        return path.resolve() == Path(image).resolve()
+    except OSError:
+        return False
 
 
 def find_base(entries: list[Entry], ident: str) -> Entry | None:

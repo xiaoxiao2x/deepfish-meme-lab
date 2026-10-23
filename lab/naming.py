@@ -94,6 +94,18 @@ def output_name(serial: int, kind: str) -> str:
     return f"{entry_id(serial)}.{kind}.png"
 
 
+def inside_output(output_dir: Path, path: Path) -> bool:
+    """这张图是不是已经躺在 `output/` 里 —— 也就是"它是不是这条链上的一环"。
+
+    两边都 resolve 再比：`output_dir` 是符号链接时（`config._resolve` 只拼不
+    resolve），直接比路径会恒假，跨日去背昨天那张图就会落到今天目录、号也跟着重排。
+    """
+    try:
+        return Path(output_dir).resolve() in Path(path).resolve().parents
+    except OSError:
+        return False
+
+
 def folder_for(output_dir: Path, source: Path, today: date | None = None) -> Path:
     """这一版落在哪个目录 —— 也就是"记在哪本账里"。
 
@@ -101,11 +113,9 @@ def folder_for(output_dir: Path, source: Path, today: date | None = None) -> Pat
     昨天的图也落在昨天那个目录（那一本账才是它的来路）。素材图（在素材根里）
     不往那儿写，落到今天那个目录。
     """
-    output_dir = Path(output_dir)
-    source = Path(source)
-    if output_dir in source.parents:
-        return source.parent
-    return daily_dir(output_dir, today)
+    if inside_output(output_dir, source):
+        return Path(source).parent
+    return daily_dir(Path(output_dir), today)
 
 
 def plan_output(
@@ -121,27 +131,46 @@ def plan_output(
     源图就在 output/ 里时贴着它落 —— 贴纸和原图放一起才方便对着看；素材图
     （在素材根里）不往那儿写，落到今天那个目录，按当天最大号接着排。
 
-    序号沿用源图的：fish-007 的原图与贴纸是同一个配方条目的两个面。两个条件挡住
-    了不该沿用的情况：
+    序号沿用源图的：fish-007 的原图与贴纸是同一个配方条目的两个面。能不能沿用，
+    分两种源图：
 
-    - 名字不是 `fish-###` 那个形状（素材图 `IMG-2024.png`）—— 没有号可沿用；
-    - **源图不在 `output/` 树里，而那个号账里已经被占了** —— 外面拿进来一张叫
-      `fish-007.orig.png` 的图不算：那个号是别人的，跟着它落会顶掉当天真有的
-      fish-007，之后借参数就借到那条无关生成的 prompt / seed。
+    - **已经躺在 `output/` 里**（这条链上的一环，跨日去背昨天的图也算）—— 号是它
+      在 `output/` 里的身份，跟哪一天无关，一律沿用；
+    - **从 `output/` 外面拿进来的**（素材图、把贴纸拷出去再加字）—— 名字里那个号
+      未必是它的：外面捡到一张也叫 `fish-007.orig.png` 的图，跟着它落就顶掉当天
+      真有的 fish-007，之后按号借参数会借到那条无关生成的 prompt / seed。所以这种
+      源图要过两关，任一关不过就换新号：名字不是 `fish-###` 那个形状；这个号
+      **账里用过**（`known`），或者**落点目录里已经有同号的别的文件**（账被清走、
+      或者根本没读到的时候，只剩目录能作证）。
 
-    源图只是在 output 里换了个日子（跨日去背昨天的图）仍然沿用 —— 号是它在
-    `output/` 里的身份，跟哪一天无关。名字带号、又是从 output 外面拿进来的图（把
-    贴纸拷出去再加字），账里没占这个号时也照旧沿用：它就是那张 007。
-
-    `known` 是那本账里已经用过的号，"按最大号接着排"那条路和上面第二条判断都用它。
-    光看目录会撞号：账里有 fish-001、图被清走之后目录里没有 001 了，于是新的贴纸
-    又叫 fish-001 —— 两条无关的生成顶着同一个 id。
+    `known` 是那本账里已经用过的号，"按最大号接着排"那条路用它：光看目录会撞号，
+    账里有 fish-001、图被清走之后目录里没有 001 了，于是新的贴纸又叫 fish-001。
     """
     output_dir = Path(output_dir)
     source = Path(source)
     folder = folder_for(output_dir, source, today)
-    serial = parse_serial(source)
-    taken = set(known)
-    if serial is None or (output_dir not in source.parents and serial in taken):
+    kept = parse_serial(source)
+    if kept is None:
         serial = next_serial(folder, known=known)
+    elif inside_output(output_dir, source):
+        # 这条链上的一环：号是它在 output/ 里的身份，跟哪一天、账里记没记过都无关。
+        serial = kept
+    elif kept in set(known) or kept in _numbers_besides(folder):
+        # 外面拿进来的同名图，那个号在这儿是别人的 —— 让开。
+        serial = next_serial(folder, known=known)
+    else:
+        serial = kept
     return folder / output_name(serial, kind), serial
+
+
+def _numbers_besides(folder: Path) -> set[int]:
+    """落点那个目录里已经占着的号。
+
+    只有外来的源图会问这个：账被清走、或者根本没读到的时候，目录里剩下的文件是
+    唯一还能作证的东西 —— 那里已经有 fish-007 了，再落一张同号的就把两条无关的
+    生成顶成同一个 id。
+    """
+    if not folder.is_dir():
+        return set()
+    found = (parse_serial(path) for path in folder.glob("fish-*.png"))
+    return {n for n in found if n is not None}

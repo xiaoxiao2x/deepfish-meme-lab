@@ -233,3 +233,40 @@ def test_the_library_keeps_its_header_and_updated_stamp(tmp_path):
     assert payload["version"] == 1
     assert payload["updatedAt"]
     assert payload["items"][0]["id"] == "fish-001"
+
+def test_a_ledger_with_a_falsy_items_value_is_not_treated_as_empty(tmp_path):
+    """items 是 ""/0/false/null 时不能当空账 —— write_entry 是整本读-改-写。
+
+    读成空账的后果不是"少看见几条"：下一条一写回去，这一天记过的条目就被整本
+    覆盖掉了，而且没有任何提示。"""
+    path = tmp_path / "registry.local.json"
+    for junk in ('""', "0", "false", "null"):
+        path.write_text(
+            '{"version": 1, "updatedAt": "2026-10-24T02:00:00+08:00", "items": ' + junk + "}",
+            encoding="utf-8",
+        )
+        try:
+            load_entries(path)
+        except ValueError as exc:
+            assert str(path) in str(exc)
+        else:  # pragma: no cover - 没抛就是错的
+            raise AssertionError(f"items={junk} 应当报错，而不是当成空的")
+
+
+def test_an_entry_with_a_null_field_says_which_field(tmp_path):
+    """必填栏是 null 与缺键同罪：`str(None)` 会把 id 洗成字面 'None' 写回账里。"""
+    path = tmp_path / "registry.local.json"
+    payload = entry().as_json()
+    payload["id"] = None
+    path.write_text(
+        json.dumps({"version": 1, "updatedAt": "x", "items": [payload]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    try:
+        load_entries(path)
+    except ValueError as exc:
+        assert "id" in str(exc)
+    else:  # pragma: no cover - 没抛就是错的
+        raise AssertionError("id 是 null 应当报错")
+

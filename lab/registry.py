@@ -150,7 +150,9 @@ class Entry:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Entry:
-        missing = [key for key in _REQUIRED_KEYS if key not in data]
+        # 值为 null 和缺键是同一件事：`str(None)` 会洗成字面 `'None'`，
+        # 那条记录从此答不出"这张图怎么来的"，而它还会被原样写回账里。
+        missing = [key for key in _REQUIRED_KEYS if data.get(key) is None]
         if missing:
             # 缺键和"JSON 坏了"是同一类事：这本账读不全，读账的人得知道缺的是哪个键。
             # 抛 ValueError 而不是漏出 KeyError —— 调用方只接这一种，漏出去就是 traceback。
@@ -208,8 +210,13 @@ def load_entries(path: Path) -> list[Entry]:
         raise ValueError(
             f"{path} 里该是一个对象，实际是 {type(data).__name__} —— 修好它或挪走再重来。"
         )
-    items = data.get("items") or []
+    if "items" not in data:
+        # 没有 items 键的账是合法的空账（第一次写之前就是这个形状）。
+        return []
+    items = data["items"]
     if not isinstance(items, list):
+        # `or []` 那种写法会把 ""/0/false/null 静默当成空账，而 write_entry 是
+        # 整本读-改-写：读成空账等于把这一天记的条目全抹掉。
         raise ValueError(
             f"{path} 的 items 该是一串条目，实际是 {type(items).__name__}"
             " —— 修好它或挪走再重来。"

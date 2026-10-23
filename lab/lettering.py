@@ -549,8 +549,6 @@ def letter(
             ident=made.id,
             path=target,
             kind=LETTERED_KIND,
-            workflow=base.workflow if base is not None else "",
-            model=base.model if base is not None else "",
             caption=text,  # glossary-ok: 字段名照 docs/design.md §6.2
             size=canvas,
         ),
