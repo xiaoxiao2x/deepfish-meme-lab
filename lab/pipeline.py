@@ -23,6 +23,7 @@ from typing import Protocol, runtime_checkable
 
 from .comfy import EngineClient, GeneratedImage
 from .config import Config
+from .naming import daily_dir, next_serial, output_name
 from .paths import check_image_file
 from .workflows import GenSpec, apply, load
 
@@ -33,12 +34,9 @@ __all__ = [
     "MadeImageSource",
     "Progress",
     "SilentProgress",
-    "daily_dir",
     "make",
     "move_out",
-    "next_serial",
     "one_image",
-    "parse_serial",
     "random_seed",
     "upload_name",
 ]
@@ -47,7 +45,8 @@ __all__ = [
 #: 卡在 32 位整数范围内最省心，也够随机。
 MAX_SEED = 2**32 - 1
 
-#: 这一阶段只出原图。台词（captioned）是 #10 的事；去背走 postprocess（#9）。
+#: 管线本身只出原图；去背走 postprocess、加字走 lettering，各自换掉后缀的
+#: 那一段（三段共用一个序号，见 lab/naming.py）。
 IMAGE_KIND = "orig"
 
 
@@ -109,45 +108,6 @@ class MadeImage:
 def random_seed() -> int:
     """留空时的随机种子。用 random 而不是 secrets —— 这不是密码。"""
     return random.randint(0, MAX_SEED)
-
-
-def daily_dir(output_dir: Path, today: date | None = None) -> Path:
-    """`output/YYYY-MM-DD`。按本地日期分堆，方便当天挑图。"""
-    day = today or date.today()
-    return Path(output_dir) / day.isoformat()
-
-
-def parse_serial(path: Path) -> int | None:
-    """从 `fish-007.orig.png` 里抠出 7；名字不是这个形状就给 None。
-
-    只认 `fish-` 前缀：`IMG-007.jpg` 这种外来名字不算序号 —— 否则素材图会被
-    当成 7 号，去背出来的贴纸直接盖掉当天已有的 fish-007。
-
-    序号是同一个配方条目的 id：原图、贴纸、带字成图共用一个号（靠后缀区分）。
-    给一张已经在 output/ 里的图做贴纸，就该沿用它原来那个号。
-    """
-    stem = Path(path).name.split(".", 1)[0]  # fish-007
-    prefix, _, digits = stem.partition("-")
-    if prefix != "fish" or not digits.isdigit():
-        return None
-    return int(digits)
-
-
-def next_serial(directory: Path, kind: str = IMAGE_KIND) -> int:
-    """当天目录里下一个可用序号。
-
-    序号是全天的（不是按 kind 分），因为 `fish-001` 是同一个配方条目的 id：
-    同一张图的原图、贴纸、带字成图共享一个序号，靠 kind 后缀区分。
-    已经存在的最大序号 +1，既不会撞车，也不会把删掉的号回收再利用。
-    """
-    directory = Path(directory)
-    if not directory.is_dir():
-        return 1
-
-    # 不按 kind 过滤：fish-001.orig.png 与 fish-001.sticker.png 共享一个序号，
-    # 只看同 kind 会让后续阶段撞 id。
-    found = (parse_serial(path) for path in directory.glob("fish-*.png"))
-    return max((n for n in found if n is not None), default=0) + 1
 
 
 def _specs(base: GenSpec, count: int, seed: int | None) -> list[GenSpec]:
@@ -274,7 +234,7 @@ def make(
             image = one_image(result.images, prompt_id)
             fetched = engine.fetch(image, Path(staging))
 
-            name = f"fish-{serial + offset:03d}.{IMAGE_KIND}.png"
+            name = output_name(serial + offset, IMAGE_KIND)
             final = move_out(fetched, out_dir / name)
 
         if init_image is None:

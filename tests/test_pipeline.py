@@ -23,10 +23,7 @@ from lab.config import load_config
 from lab.pipeline import (
     MAX_SEED,
     SilentProgress,
-    daily_dir,
     make,
-    next_serial,
-    parse_serial,
     random_seed,
 )
 from lab.stub import StubEngine
@@ -168,31 +165,6 @@ def test_serials_continue_after_existing_files(tmp_path):
     made = _run(tmp_path, count=2)
 
     assert [p.path.name for p in made] == ["fish-008.orig.png", "fish-009.orig.png"]
-
-
-def test_next_serial_counts_every_kind(tmp_path):
-    """fish-001 是一个配方条目，原图/贴纸/带字共用序号，不该分 kind 数。"""
-    folder = tmp_path / "output" / "2026-10-23"
-    folder.mkdir(parents=True)
-    (folder / "fish-003.sticker.png").write_bytes(b"x")
-
-    assert next_serial(folder) == 4
-
-
-def test_next_serial_is_one_for_a_missing_folder(tmp_path):
-    assert next_serial(tmp_path / "nope") == 1
-
-
-def test_parse_serial_only_reads_fish_names():
-    """外来名字（IMG-007.jpg）不算序号 —— 否则它会被当成 7 号去盖 fish-007。"""
-    assert parse_serial(Path("fish-007.orig.png")) == 7
-    assert parse_serial(Path("IMG-007.jpg")) is None
-    assert parse_serial(Path("fish-abc.png")) is None
-    assert parse_serial(Path("fish-.png")) is None
-
-
-def test_daily_dir_uses_iso_date(tmp_path):
-    assert daily_dir(tmp_path, date(2026, 1, 2)) == tmp_path / "2026-01-02"
 
 
 # ---------- 搬运，不是引用 ----------

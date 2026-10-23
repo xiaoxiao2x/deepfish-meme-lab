@@ -5,6 +5,8 @@
     python -m lab assets dupes    按索引列出重复组
     python -m lab make            给一句话，出一批图（这是工作台的主要用途）
     python -m lab sticker <图片>  把一张图去背成透明底贴纸
+    python -m lab caption <贴纸> --text "你好呀"  # glossary-ok: 子命令名，docs/roadmap.md:165 定死的对外接口
+                                  给贴纸印一句台词，同目录同序号落成 .captioned.png
     python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
 退出码：0 = 全绿能干活；1 = 有 FAIL、有没查成的项、或有问题要处理；2 = 命令本身
@@ -331,6 +333,35 @@ def _run_sticker(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_lettering(config: Config, args: argparse.Namespace) -> int:
+    """加字那一站：贴纸进去，带台词成图出来（票 #10；子命令名见 docs/roadmap.md:165）。
+
+    加字是纯本地的图像动作，不经过引擎：没有 ComfyUI 也能跑。
+    """
+    from .lettering import LetteringError, letter
+
+    try:
+        made = letter(config, args.image, args.text)
+    except ConfigError as exc:
+        # 配置错和"命令用错了"一样，都得先改一行再重来 —— 归到 2。
+        print(f"配置有问题：{exc}", file=sys.stderr)
+        return 2
+    except LetteringError as exc:
+        print(f"加字不成：{exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    print()
+    print(f"加字完成，在 {made.path.parent}")
+    print(f"  源图 {made.from_image}")
+    print(f"  {made.id}  {made.path.name}")
+    for line in made.lines:
+        print(f"  | {line}")
+    return 0
+
+
 def _run_stub(config: Config, args: argparse.Namespace) -> int:
     """起假引擎。没有显卡、权重还没下完的时候，靠它把工作台这一段走通。"""
     from .stub import StubEngine
@@ -427,6 +458,21 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
         "image", help="要去背的图片路径：工作台出的图和别的图都行"
     )
 
+    # glossary-ok: caption 是 docs/roadmap.md:165 定死的对外子命令名，改不了
+    lettering_parser = subparsers.add_parser(
+        "caption",  # glossary-ok: 子命令名，docs/roadmap.md:165 定死的对外接口
+        help="给一张贴纸印一句台词（同目录同序号落成 .captioned.png；不需要引擎）",
+    )
+    lettering_parser.add_argument(
+        "image", help="要加字的贴纸路径：一般就是 lab sticker 刚出的那张"
+    )
+    lettering_parser.add_argument(
+        "--text",
+        "-t",
+        required=True,
+        help="要印上去的台词：太长会自动折行，压在下沿居中",
+    )
+
     stub_parser = subparsers.add_parser(
         "stub", help="起一个假引擎（无显卡也能端到端调试）"
     )
@@ -465,6 +511,9 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     if args.command == "sticker":
         return _run_sticker(config, args)
+
+    if args.command == "caption":  # glossary-ok: 子命令名，与上面的 add_parser 对应
+        return _run_lettering(config, args)
 
     if args.command == "stub":
         return _run_stub(config, args)

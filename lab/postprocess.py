@@ -1,9 +1,9 @@
 """后处理：把出好的图变成能直接用的贴纸。
 
-模型推理在引擎里（docs/design.md:105）：去背是 ComfyUI-RMBG 的节点干的活，
+模型推理在引擎里（docs/design.md §4「后处理层」）：去背是 ComfyUI-RMBG 的节点干的活，
 这里负责编排这一趟 —— 把哪张图喂进去、出来的东西验一验、叫什么、落哪儿。
 
-命名沿用 `fish-###.{orig|sticker|captioned}.png`（docs/roadmap.md:155）：贴纸与它的
+命名沿用 `fish-###.{orig|sticker|captioned}.png`（docs/roadmap.md §3「命名与落盘」）：贴纸与它的
 原图共用一个序号 —— `fish-007.orig.png` 去背出来就是 `fish-007.sticker.png`，
 两张图躺在同一个目录里，对着看很方便。
 """
@@ -17,20 +17,14 @@ from pathlib import Path
 
 from .comfy import EngineClient, EngineError
 from .config import Config
-from .paths import check_image_file
-from .pipeline import (
-    daily_dir,
-    move_out,
-    next_serial,
-    one_image,
-    parse_serial,
-    upload_name,
-)
+from .naming import plan_output
+from .paths import check_still_image
+from .pipeline import move_out, one_image, upload_name
 from .workflows import apply_sticker, load, sticker_model
 
 __all__ = ["STICKER_KIND", "MadeSticker", "sticker"]
 
-#: 贴纸的后缀：`fish-007.sticker.png` 里那一段（docs/roadmap.md:155）。
+#: 贴纸的后缀：`fish-007.sticker.png` 里那一段（docs/roadmap.md §3「命名与落盘」）。
 STICKER_KIND = "sticker"
 
 
@@ -53,25 +47,6 @@ class MadeSticker:
     @property
     def id(self) -> str:
         return f"fish-{self.serial:03d}"
-
-
-def _plan_output(cfg: Config, source: Path, today: date | None) -> tuple[Path, int]:
-    """贴纸落哪儿、叫什么号。
-
-    源图就在 output/ 里时贴着它落 —— 贴纸和原图放一起才方便对着看；素材图
-    （在素材根里）不往那儿写，落到今天那个目录，按当天最大号接着排。
-
-    序号沿用源图的：fish-007 的原图与贴纸是同一个配方条目的两个面。
-    同名贴纸已经存在就直接覆盖 —— 那就是"把这张重做一遍"。
-    """
-    output_dir = Path(cfg.paths.output_dir)
-    folder = (
-        source.parent if output_dir in source.parents else daily_dir(output_dir, today)
-    )
-    serial = parse_serial(source)
-    if serial is None:
-        serial = next_serial(folder)
-    return folder / f"fish-{serial:03d}.{STICKER_KIND}.png", serial
 
 
 def _check_alpha(path: Path) -> None:
@@ -109,13 +84,12 @@ def sticker(
 
     同名贴纸已经存在就原地覆盖 —— 那是"把这张重来一遍"，不是多出一张。
     """
-    source = check_image_file(image, what="图片")
-
-    if source.suffix.lower() == ".gif":
-        raise ValueError(
-            f"动图去背这一阶段不做：{source} —— 引擎只会取第一帧，出来的东西跟"
-            "你要的不是一回事（docs/roadmap.md:170）。先存成静帧再喂进来。"
-        )
+    source = check_still_image(
+        image,
+        what="图片",
+        why="去背这一阶段不做",
+        detail="引擎只会取第一帧，出来的东西跟你要的不是一回事",
+    )
 
     template_name = cfg.workflows.sticker
     if not template_name:
@@ -133,7 +107,7 @@ def sticker(
     result = engine.wait(prompt_id)
     engine_image = one_image(result.images, prompt_id)
 
-    target, serial = _plan_output(cfg, source, today)
+    target, serial = plan_output(cfg.paths.output_dir, source, today, STICKER_KIND)
     # 先验后搬：一张假贴纸（丢了 alpha）不该落进 output/ 冒充成品。
     with tempfile.TemporaryDirectory(prefix="lab-engine-") as staging:
         fetched = engine.fetch(engine_image, Path(staging))

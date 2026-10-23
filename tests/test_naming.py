@@ -1,0 +1,77 @@
+"""成品的落点与编号：叫什么号、落哪个目录。
+
+原图、贴纸、带字成图三站共用这套规则（序号是同一个配方条目的 id，靠后缀区分），
+所以它自己一个模块、自己一组用例 —— 谁改坏了这里，三站会一起错位。
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import date
+from pathlib import Path
+
+from lab.config import load_config
+from lab.naming import daily_dir, next_serial, parse_serial, plan_output
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TODAY = date(2026, 10, 23)
+
+
+def _cfg(tmp_path: Path):
+    """真配置 + 把输出目录换到 tmp 里 —— 用例不往仓库的 output/ 里写东西。"""
+    cfg = load_config(REPO_ROOT)
+    return replace(cfg, paths=replace(cfg.paths, output_dir=tmp_path / "output"))
+
+
+def test_next_serial_counts_every_kind(tmp_path):
+    """fish-001 是一个配方条目，原图/贴纸/带字共用序号，不该分后缀数。"""
+    folder = tmp_path / "output" / "2026-10-23"
+    folder.mkdir(parents=True)
+    (folder / "fish-003.sticker.png").write_bytes(b"x")
+
+    assert next_serial(folder) == 4
+
+
+def test_next_serial_is_one_for_a_missing_folder(tmp_path):
+    assert next_serial(tmp_path / "nope") == 1
+
+
+def test_parse_serial_only_reads_fish_names():
+    """外来名字（IMG-007.jpg）不算序号 —— 否则它会被当成 7 号去盖 fish-007。"""
+    assert parse_serial(Path("fish-007.orig.png")) == 7
+    assert parse_serial(Path("IMG-007.jpg")) is None
+    assert parse_serial(Path("fish-abc.png")) is None
+    assert parse_serial(Path("fish-.png")) is None
+
+
+def test_daily_dir_uses_iso_date(tmp_path):
+    assert daily_dir(tmp_path, date(2026, 1, 2)) == tmp_path / "2026-01-02"
+
+
+def test_plan_output_follows_the_source_inside_output(tmp_path):
+    """源图就在 output/ 里：贴着它落、沿用一个号，只换后缀。"""
+    cfg = _cfg(tmp_path)
+    folder = cfg.paths.output_dir / TODAY.isoformat()
+
+    target, serial = plan_output(
+        cfg.paths.output_dir, folder / "fish-007.orig.png", TODAY, "captioned"
+    )
+
+    assert target == folder / "fish-007.captioned.png"
+    assert serial == 7
+
+
+def test_plan_output_puts_a_foreign_picture_in_todays_folder(tmp_path):
+    """素材图（不在 output/ 里）不往那儿写：落到今天的目录，按当天最大号接着排。"""
+    cfg = _cfg(tmp_path)
+    outside = tmp_path / "素材" / "IMG-001.png"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+    today_dir = cfg.paths.output_dir / TODAY.isoformat()
+    today_dir.mkdir(parents=True)
+    (today_dir / "fish-004.sticker.png").write_bytes(b"x")
+
+    target, serial = plan_output(cfg.paths.output_dir, outside, TODAY, "sticker")
+
+    assert target == today_dir / "fish-005.sticker.png"
+    assert serial == 5

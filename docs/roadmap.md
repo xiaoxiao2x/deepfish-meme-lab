@@ -154,7 +154,7 @@ python -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
 | 功能 | 手段 |
 |---|---|
 | **去背** | 工作流里接 `BiRefNetRMBG` 节点（模型 Lucida、`background=Alpha`），输出 RGBA PNG —— **已达成**（#9） |
-| **加字** | Pillow + `NotoSansCJK-Black.ttc`；自动换行、描边、位置微调 |
+| **加字** | Pillow + `NotoSansCJK-Black.ttc`；自动换行、描边、位置微调 —— **已达成**（#10） |
 | **规格导出** | 目前只做"原图（1024 级）+ 透明底贴纸 PNG + 带台词成图"三种；**表情包规格（240×240 等）属于非目标，不在本阶段** |
 | **命名与落盘** | `output/YYYY-MM-DD/fish-###.{orig|sticker|captioned}.png` |
 
@@ -169,7 +169,9 @@ python -m lab caption <贴纸路径> --text "你好呀"        # → 带字成�
 
 对同一张图能依次跑出：原图 → 透明底贴纸 → 带字成图，中文台词渲染正确、无豆腐块。
 
-**去背已达成（2026-10-23，见 #9）**：`python -m lab sticker <图片>` 出一张 RGBA 贴纸 —— 源图是工作台出的就落在它旁边（沿用同一个序号：`fish-007.orig.png` → `fish-007.sticker.png`），别的图落当天目录按当天最大号接；成品落盘前回读验一遍 alpha：接成下标 1 的 `MASK` 引擎在提交时就用 `Return type mismatch` 拒了，接成下标 2 的 `MASK_IMAGE` 能跑完但透明区会丢 —— 回读这一关当场报错，不会悄悄出一张不透明的"贴纸"。加字与规格导出还没做。
+**去背已达成（2026-10-23，见 #9）**：`python -m lab sticker <图片>` 出一张 RGBA 贴纸 —— 源图是工作台出的就落在它旁边（沿用同一个序号：`fish-007.orig.png` → `fish-007.sticker.png`），别的图落当天目录按当天最大号接；成品落盘前回读验一遍 alpha：接成下标 1 的 `MASK` 引擎在提交时就用 `Return type mismatch` 拒了，接成下标 2 的 `MASK_IMAGE` 能跑完但透明区会丢 —— 回读这一关当场报错，不会悄悄出一张不透明的"贴纸"。
+
+**加字已达成（2026-10-23，见 #10）**：`python -m lab caption <贴纸> --text "你好呀"` 出一张 `.captioned.png` —— 同样沿用贴纸的序号、落在贴纸旁边（`fish-007.sticker.png` → `fish-007.captioned.png`）；台词自动折行、压在下沿居中、字色深灰 `#1B1B1B` 配一圈 4px 白描边，参数在 `config/default.toml` 的 `[postprocess]` 里改。这一步不碰引擎，纯 Pillow，跑一次是毫秒级的。判据 ② 与 ⑥ 是这一票的重点：**缺字体**（配置里的路径不存在、机器上一个中文字体都没有）与**缺字形**（这个字体里没有那个字，包括 emoji）都在画之前报错并说是哪个字、哪个 `U+XXXX`，不会安安静静画成方块 —— 靠"拿 `U+FFFF` 的遮罩当豆腐块指纹"来判，测过 DejaVuSans 缺汉字的遮罩和 `U+FFFF` 完全一致。规格导出还没做。
 
 ### 风险
 
@@ -177,8 +179,8 @@ python -m lab caption <贴纸路径> --text "你好呀"        # → 带字成�
 - **去背节点的 optional 一个都不能少**：`BiRefNetRMBG` 的 `mask_blur` / `mask_offset` / `invert_output` / `background` 声明成 optional，但节点的 `process_image` 用 `params["键"]` 直接取 —— 靠 API 提交时少写一个键就 KeyError（`Error in image processing: 'mask_blur'`）。模板里八个键全写上，值就是节点默认值。
 - **BiRefNet 要 timm**：引擎的 conda 环境起初没装 `timm`，第一次去背才报 `Error loading BiRefNet model: No module named 'timm'`（`pip install timm` 即可）。它不属于 `comfy.required_nodes` 能查出来的东西。
 - **动图去背**：需要逐帧处理，成本与复杂度高。**本阶段明确不做**——动图（100 张 gif 素材、动图表情包）留到本阶段之后。
-- 中文字体在不同字号下的字重选择（Black 做贴纸标题、Regular 做正文），需要试。
-- 描边与背景对比度：透明底上加了字，导出到聊天软件里可能看不清——需要一层白描边。
+- 中文字体在不同字号下的字重选择（Black 做贴纸标题、Regular 做正文），需要试（#10 先用 Black 一个字号跑通，字重选择留给后面调）。
+- 描边与背景对比度：透明底上加了字，导出到聊天软件里可能看不清——需要一层白描边（#10 已做成 4px 白描边，默认值可调）。
 
 ---
 

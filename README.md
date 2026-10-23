@@ -10,7 +10,7 @@
 
 **实现中** —— 设计与路线已定稿；第一阶段（M1–M4）按 [票](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues) 推进。
 
-M1 环境补齐、M2 出图管线、M3 的去背都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）。M3 还剩加字与规格导出。
+M1 环境补齐、M2 出图管线、M3 的去背与加字都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。M3 还剩规格导出。
 
 ## 跑起来
 
@@ -24,6 +24,9 @@ python3 -m lab make --prompt "同一只鲸鱼娘，换个表情" \
 python3 -m lab sticker output/2026-10-23/fish-001.orig.png
                             # 去背：出一张透明底贴纸，落在原图旁边（同名同序号）
                             # 别的图也行；用哪只去背模型写在模板的 model 字段里
+python3 -m lab caption output/2026-10-23/fish-001.sticker.png --text "你好呀"
+                            # 加字：带白描边的带字成图，落在贴纸旁边（同名同序号）
+                            # 台词长了会自动折行；字体与字号在 config 的 [postprocess] 里
 python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
 python3 -m lab assets dupes  # 按索引列出重复组
 python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通（--rgba 时回的图带透明通道）

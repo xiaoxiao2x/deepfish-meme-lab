@@ -237,7 +237,7 @@ def test_a_result_without_alpha_is_refused(tmp_path):
 
 
 def test_an_animated_picture_is_refused(tmp_path):
-    """验收判据 4 的边界：动图这一阶段不做（docs/roadmap.md:170）。"""
+    """验收判据 4 的边界：动图这一阶段不做（docs/roadmap.md §3「风险」）。"""
     gif = tmp_path / "anim.gif"
     gif.write_bytes(b"GIF89a")
 

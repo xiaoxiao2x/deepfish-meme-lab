@@ -80,8 +80,16 @@ BANNED = (
     "登记册",
 )
 
-#: 中文词直接找，英文词要词边界（否则 dedup / captioning 之类会假命中）。
-BANNED_PATTERN = re.compile("|".join(r"\bcaption\b" if w.isascii() else w for w in BANNED))
+#: 中文词直接找；英文词要求前后不是字母或数字（下划线不算边界）。这条比 \b 严：
+#: \b 把下划线当边界，于是 `_run_caption`、`caption_parser` 这类标识符整块逃掉 ——
+#: 词表名义上管着、实际一路绿。反过来 `captioned`（对外后缀，词表允许）后面跟着
+#: 字母，照样不命中 —— 严的是标识符，不是派生词。
+BANNED_PATTERN = re.compile(
+    "|".join(
+        rf"(?<![A-Za-z0-9]){re.escape(w)}(?![A-Za-z0-9])" if w.isascii() else w
+        for w in BANNED
+    )
+)
 
 #: 扫哪些：工作台自己的话。不扫 docs/（见 docstring），不扫 config/local.toml（本机文件）。
 SCANNED_GLOBS = (

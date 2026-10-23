@@ -69,10 +69,14 @@ negative = ""
 
 [postprocess]
 # 加字用的中文字体（绝对路径）。系统字体路径带本机气味，实际值写在 config/local.toml。
+# 留空 = 按 lab/lettering.py 里的常见位置表自动挑（Noto Sans CJK 系列优先）。
 font = ""
 font_size = 64
+# 描边：深色背景上字要看得见，靠的就是这一圈。
 stroke_width = 4
 stroke_color = "#FFFFFF"
+# 字色。近黑，压在白描边上。
+fill = "#1B1B1B"
 
 [server]
 # GUI（M5 阶段）

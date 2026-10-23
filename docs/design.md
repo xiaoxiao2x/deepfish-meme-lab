@@ -82,7 +82,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
         │  assets.py      素材索引（415 张，只读引用）│
         │  workflows.py   工作流模板加载 + 参数注入   │
         │  comfy.py       调 ComfyUI HTTP API        │
-        │  postprocess.py Pillow 去背 / 加字 / 缩放   │
+        │  naming.py      成品落点与编号              │
+        │  postprocess.py Pillow 去背与校验           │
+        │  lettering.py   加字排版（Pillow 画字）     │
         │  registry.py    登记册读写                  │
         │  cli.py         命令行入口                  │
         └──────┬────────────────────────┬──────────┘
@@ -102,7 +104,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 - **素材层**（`assets.py`）：只读扫描素材根目录，产出索引（路径 / 尺寸 / 是否动图 / 内容哈希）与重复组（sha1 → 9×8 dhash → 128×128 灰度 MAE 三级收敛）。**不复制、不移动、不修改素材原始文件**。
 - **工作流层**（`workflows.py`）：加载 `workflows/*.json`（ComfyUI **API 格式**，不是 UI 格式），把业务参数映射到节点输入，产出可提交的 prompt 图。
 - **引擎层**（`comfy.py`）：`POST /prompt` 提交、`GET /history/{id}` 轮询到完成、按 `/view` 取回文件；负责排队、超时、错误还原。**不启动 ComfyUI 进程**（假设它已在运行，见 §10）。进度订阅（WS `/ws`）留到真需要实时性的那天——轮询够用，也更好排队。
-- **后处理层**（`postprocess.py`）：编排一趟后处理 —— 把图喂进后处理模板、经引擎层跑一趟、用 Pillow 回读校验、按 `fish-NNN` 命名落盘（去背 / 加字 / 缩放）。去背的模型推理在 ComfyUI 里做（`BiRefNetRMBG` 节点），本层只负责"喂哪张、验什么、叫什么、落哪儿"。
+- **后处理层**（`postprocess.py`）：编排一趟去背 —— 把图喂进后处理模板、经引擎层跑一趟、用 Pillow 回读校验。模型推理在 ComfyUI 里做（`BiRefNetRMBG` 节点），本层只负责"喂哪张、验什么"。
+- **加字层**（`lettering.py`）：不经过引擎，纯 Pillow 画字。折行与坐标是纯计算，真正画像素交给一个可注入的后端，所以"交给后端的话对不对"能在不碰像素的情况下断言。
+- **命名层**（`naming.py`）：原图、贴纸、带字成图三站共用的"这一版落哪儿、叫什么号"。`fish-NNN` 三态同号，靠后缀区分；只认目录与日期，不认识配置，也不认识引擎。
 - **登记层**（`registry.py`）：写 `output/…/registry.local.json`（全量）与 `data/registry.json`（定稿配方），见 §6。
 - **表现层**（第二阶段）：FastAPI + 模板。
 

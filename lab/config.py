@@ -17,13 +17,14 @@ __all__ = [
     "Config",
     "ConfigError",
     "GenerateConfig",
+    "PostprocessConfig",
     "WorkflowsConfig",
     "load_config",
 ]
 
 
 class ConfigError(Exception):
-    """配置缺失、缺键，或 TOML 语法坏了。"""
+    """配置缺失、缺键、TOML 语法坏了，或某个值根本不合理（字号是 0、颜色拼错）。"""
 
 
 @dataclass(frozen=True)
@@ -86,12 +87,28 @@ class WorkflowsConfig:
 
 
 @dataclass(frozen=True)
+class PostprocessConfig:
+    """加字那一站的外观 —— 这里是它唯一的值来源，命令行不给这几项覆盖选项。
+
+    字体带本机气味（绝对路径），所以默认留空：留空就按 lab/lettering.py 里那张
+    常见位置表自动挑，本机实际值写在 config/local.toml。
+    """
+
+    font: Path | None  # 已解析成绝对路径；没配就是 None
+    font_size: int
+    stroke_width: int
+    stroke_color: str  # #RRGGBB，描边色
+    fill: str  # #RRGGBB，字色
+
+
+@dataclass(frozen=True)
 class Config:
     repo_root: Path
     comfy: ComfyConfig
     paths: PathsConfig
     generate: GenerateConfig
     workflows: WorkflowsConfig
+    postprocess: PostprocessConfig
 
 
 def _read_toml(path: Path) -> dict:
@@ -185,10 +202,22 @@ def load_config(repo_root: Path | str) -> Config:
         sticker=str(workflows_raw.get("sticker") or ""),
     )
 
+    postprocess_raw = data.get("postprocess") or {}
+    font_value = postprocess_raw.get("font") or ""
+    postprocess = PostprocessConfig(
+        # 空串 = 没配，让 lettering 自己挑一个常见位置。
+        font=_resolve(root, font_value) if font_value else None,
+        font_size=int(postprocess_raw.get("font_size", 64)),
+        stroke_width=int(postprocess_raw.get("stroke_width", 4)),
+        stroke_color=str(postprocess_raw.get("stroke_color") or "#FFFFFF"),
+        fill=str(postprocess_raw.get("fill") or "#1B1B1B"),
+    )
+
     return Config(
         repo_root=root,
         comfy=comfy,
         paths=paths,
         generate=generate,
         workflows=workflows,
+        postprocess=postprocess,
     )

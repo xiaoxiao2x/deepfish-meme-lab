@@ -12,6 +12,11 @@ dependencies = ["Pillow>=12"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# slow 是"真字体、真像素"的那一小撮：跑得慢，但加字的正确性最后只能由它背书。
+# 平时照跑；赶时间可以 pytest -q -m "not slow"。
+markers = [
+    "slow: 真要画像素的用例（真字体渲染），几分钟内跑得完但明显比别的慢",
+]
 
 # ── 检查配置：写在仓库里，别让它随工具版本的默认值漂移 ──────────────────
 # 此前 ruff/mypy 都没有任何配置，跑出来是什么结果取决于装的是哪个版本
