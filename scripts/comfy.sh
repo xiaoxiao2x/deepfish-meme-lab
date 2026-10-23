@@ -36,7 +36,11 @@ case "$action" in
             exit 0
         fi
         cd "$COMFY_ROOT"
-        setsid "$COMFY_PYTHON" main.py >"$COMFY_LOG" 2>&1 </dev/null &
+        # 顺手清掉两个毒药：all_proxy=socks://… 与 no_proxy 里的 [::1]。引擎自己下
+        # 权重走 httpx，它既不认那个 scheme，又把 [::1] 解析成非法端口。
+        setsid env -u all_proxy -u ALL_PROXY -u ftp_proxy -u FTP_PROXY \
+            no_proxy=localhost,127.0.0.1 NO_PROXY=localhost,127.0.0.1 \
+            "$COMFY_PYTHON" main.py >"$COMFY_LOG" 2>&1 </dev/null &
         echo "起了引擎（日志 $COMFY_LOG），等它就绪……"
         i=0
         while [ "$i" -lt 90 ]; do

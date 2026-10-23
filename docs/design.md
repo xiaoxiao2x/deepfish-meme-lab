@@ -102,7 +102,7 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 - **素材层**（`assets.py`）：只读扫描素材根目录，产出索引（路径 / 尺寸 / 是否动图 / 内容哈希）与重复组（sha1 → 9×8 dhash → 128×128 灰度 MAE 三级收敛）。**不复制、不移动、不修改素材原始文件**。
 - **工作流层**（`workflows.py`）：加载 `workflows/*.json`（ComfyUI **API 格式**，不是 UI 格式），把业务参数映射到节点输入，产出可提交的 prompt 图。
 - **引擎层**（`comfy.py`）：`POST /prompt` 提交、`GET /history/{id}` 轮询到完成、按 `/view` 取回文件；负责排队、超时、错误还原。**不启动 ComfyUI 进程**（假设它已在运行，见 §10）。进度订阅（WS `/ws`）留到真需要实时性的那天——轮询够用，也更好排队。
-- **后处理层**（`postprocess.py`）：Pillow 做去背合成 / 加字 / 缩放 / 命名。去背的模型推理在 ComfyUI 里做（RMBG 节点），本层只做拼装。
+- **后处理层**（`postprocess.py`）：编排一趟后处理 —— 把图喂进后处理模板、经引擎层跑一趟、用 Pillow 回读校验、按 `fish-NNN` 命名落盘（去背 / 加字 / 缩放）。去背的模型推理在 ComfyUI 里做（`BiRefNetRMBG` 节点），本层只负责"喂哪张、验什么、叫什么、落哪儿"。
 - **登记层**（`registry.py`）：写 `output/…/registry.local.json`（全量）与 `data/registry.json`（定稿配方），见 §6。
 - **表现层**（第二阶段）：FastAPI + 模板。
 
@@ -188,6 +188,8 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 ```
 
 **参数注入方式：按 `_meta.title` 查找节点，不按节点 ID。** 这是刻意的设计——节点 ID 会在你重排工作流时变化，标题不会。约定标题集合：`提示词` / `负面词` / `采样器` / `种子` / `步数` / `尺寸` / `引导强度` / `底图` / `重绘强度` / `输出`。后两个只有底图模板才有——没有底图的模板本来就该缺它们，缺了才是对的。
+
+**后处理模板另有一套短标题**：`图片` / `去背` / `输出`（去背模板一共三个节点，见 #9）。它没有采样链也没有提示词，套生成模板那串标题没有意义，所以两份清单分开管：`lab.workflows` 里 `REQUIRED_TITLES` 与 `STICKER_TITLES` 各管各的。
 
 **工作流怎么来**：直接**手写** API 格式 JSON（`workflows/fish-txt2img.json` 就是这么来的，13 个节点、链路线性），写完用 `lab.comfy` 的客户端提交验证。只有手写被引擎拒绝（节点类名或参数结构记错）时，才去界面拉一个官方模板导出对照——界面不是必经工序。
 
@@ -374,7 +376,7 @@ python3 -m lab assets dupes  # 按索引列出重复组明细
 | `kijai/ComfyUI-KJNodes` | 通用工具节点 | P1 |
 | `Fannovel16/ComfyUI-Frame-Interpolation` | 动图插帧（表情包动图时需要） | P2 |
 
-**去背模型**：优先 **Lucida**（BiRefNet 微调，MIT，专攻插画 / 线稿 / 贴纸 / logo / 发光特效），次选 BiRefNet 通用版。多数模型首次使用时 ComfyUI-RMBG 会自动下载。
+**去背模型**：优先 **Lucida**（BiRefNet 微调，MIT，专攻插画 / 线稿 / 贴纸 / logo / 发光特效），次选 BiRefNet 通用版。多数模型首次使用时 ComfyUI-RMBG 会自动下载。落到模板里就是 `BiRefNetRMBG` 节点——Lucida 只列在它的 `MODEL_CONFIG` 里；名字很像的邻居 `RMBG` 节点只有 RMBG-2.0 / INSPYRENET / BEN / BEN2 那几只，别用错（#9 实测）。
 
 **下载通道**：
 - `hf-mirror.com` 本机可达（HTTP 200），`huggingface.co` 直连也通。

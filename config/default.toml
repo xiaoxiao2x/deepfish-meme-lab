@@ -52,6 +52,8 @@ asset_index = "assets/index.local.json"
 # 注意：参数按节点的 _meta.title 注入，不按节点 ID（见 docs/design.md §6.3）
 default = "fish-txt2img.json"
 img2img = "fish-img2img.json"
+# 去背（把出好的图变成透明底贴纸）
+sticker = "fish-sticker.json"
 
 [generate]
 count = 4               # 一次生成几张

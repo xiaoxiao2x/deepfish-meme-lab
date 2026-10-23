@@ -23,7 +23,7 @@ from typing import Protocol, runtime_checkable
 
 from .comfy import EngineClient, GeneratedImage
 from .config import Config
-from .paths import IMAGE_SUFFIXES
+from .paths import check_image_file
 from .workflows import GenSpec, apply, load
 
 __all__ = [
@@ -35,15 +35,19 @@ __all__ = [
     "SilentProgress",
     "daily_dir",
     "make",
+    "move_out",
     "next_serial",
+    "one_image",
+    "parse_serial",
     "random_seed",
+    "upload_name",
 ]
 
 #: ComfyUI 的 noise_seed 是 64 位，但超过 2^32 的值在部分节点上会被截；
 #: 卡在 32 位整数范围内最省心，也够随机。
 MAX_SEED = 2**32 - 1
 
-#: 这一阶段只出原图。去背（sticker）与台词（captioned）是 #9 / #10 的事。
+#: 这一阶段只出原图。台词（captioned）是 #10 的事；去背走 postprocess（#9）。
 IMAGE_KIND = "orig"
 
 
@@ -113,6 +117,22 @@ def daily_dir(output_dir: Path, today: date | None = None) -> Path:
     return Path(output_dir) / day.isoformat()
 
 
+def parse_serial(path: Path) -> int | None:
+    """从 `fish-007.orig.png` 里抠出 7；名字不是这个形状就给 None。
+
+    只认 `fish-` 前缀：`IMG-007.jpg` 这种外来名字不算序号 —— 否则素材图会被
+    当成 7 号，去背出来的贴纸直接盖掉当天已有的 fish-007。
+
+    序号是同一个配方条目的 id：原图、贴纸、带字成图共用一个号（靠后缀区分）。
+    给一张已经在 output/ 里的图做贴纸，就该沿用它原来那个号。
+    """
+    stem = Path(path).name.split(".", 1)[0]  # fish-007
+    prefix, _, digits = stem.partition("-")
+    if prefix != "fish" or not digits.isdigit():
+        return None
+    return int(digits)
+
+
 def next_serial(directory: Path, kind: str = IMAGE_KIND) -> int:
     """当天目录里下一个可用序号。
 
@@ -124,16 +144,10 @@ def next_serial(directory: Path, kind: str = IMAGE_KIND) -> int:
     if not directory.is_dir():
         return 1
 
-    highest = 0
     # 不按 kind 过滤：fish-001.orig.png 与 fish-001.sticker.png 共享一个序号，
     # 只看同 kind 会让后续阶段撞 id。
-    for path in directory.glob("fish-*.png"):
-        stem = path.name.split(".", 1)[0]  # fish-001
-        _, _, digits = stem.partition("-")
-        if digits.isdigit():
-            highest = max(highest, int(digits))
-
-    return highest + 1
+    found = (parse_serial(path) for path in directory.glob("fish-*.png"))
+    return max((n for n in found if n is not None), default=0) + 1
 
 
 def _specs(base: GenSpec, count: int, seed: int | None) -> list[GenSpec]:
@@ -148,7 +162,7 @@ def _specs(base: GenSpec, count: int, seed: int | None) -> list[GenSpec]:
     ]
 
 
-def _one_image(images: tuple[GeneratedImage, ...], prompt_id: str) -> GeneratedImage:
+def one_image(images: tuple[GeneratedImage, ...], prompt_id: str) -> GeneratedImage:
     """一次提交只该出一张图。
 
     模板里的 `batch_size` 若被改成 N，一次提交会回来 N 张 —— 它们共用同一个种子，
@@ -165,39 +179,20 @@ def _one_image(images: tuple[GeneratedImage, ...], prompt_id: str) -> GeneratedI
     return images[0]
 
 
-def _move_out(engine_file: Path, target: Path) -> Path:
+def move_out(engine_file: Path, target: Path) -> Path:
     """把临时目录里的图搬到最终位置。跨文件系统也能搬（shutil.move 会退化成拷贝）。"""
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(engine_file), str(target))
     return target
 
 
-def _check_init_image(path: Path) -> Path:
-    """底图得真的在、真的是张图 —— 报错要能照着改。
-
-    返回绝对路径：登记条目记的是这张底图，相对路径一换工作目录就指错地方。
-    """
-    path = Path(path).expanduser()
-    if not path.exists():
-        raise ValueError(
-            f"底图不在：{path} —— --init-image 给的就是这个路径，先确认文件还在。"
-        )
-    if not path.is_file():
-        raise ValueError(f"底图不是文件：{path} —— 这里要的是单个图片文件。")
-    if path.suffix.lower() not in IMAGE_SUFFIXES:
-        formats = "、".join(sorted(IMAGE_SUFFIXES))
-        raise ValueError(
-            f"底图格式不支持：{path}（后缀 {path.suffix or '（没有后缀）'}）。"
-            f"支持这些：{formats}"
-        )
-    return path.resolve()
-
-
-def _upload_name(path: Path) -> str:
-    """底图在引擎侧的名字：内容哈希 + 原后缀。
+def upload_name(path: Path) -> str:
+    """一张图在引擎侧的名字：内容哈希 + 原后缀。
 
     素材路径里有中文和空格，直接拿原名去引擎容易出岔子；用内容哈希还能让
-    "同一张底图重复上传"落成同一个名字 —— 上传因此是幂等的，不在引擎里堆垃圾。
+    "同一张图重复上传"落成同一个名字 —— 上传因此是幂等的，不在引擎里堆垃圾。
+
+    底图复用与去背共用这一套命名：两边都只是"喂一张本机图给引擎"。
     """
     digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
     return f"lab-init-{digest}{path.suffix.lower()}"
@@ -237,7 +232,9 @@ def make(
         raise ValueError("--count 至少是 1")
 
     init_image = (
-        _check_init_image(spec.init_image) if spec.init_image is not None else None
+        check_image_file(spec.init_image, what="底图")
+        if spec.init_image is not None
+        else None
     )
     if init_image is not None and not 0.0 < float(spec.denoise) <= 1.0:
         raise ValueError(
@@ -252,7 +249,7 @@ def make(
     # 底图先落到引擎的 input 目录：LoadImage 只认它自己目录里的名字。
     # 整批只传一次 —— 同一张底图的每一张成品共用它。
     engine_name = (
-        engine.upload_image(init_image, name=_upload_name(init_image))
+        engine.upload_image(init_image, name=upload_name(init_image))
         if init_image is not None
         else None
     )
@@ -274,11 +271,11 @@ def make(
             prompt = apply(template, one, engine_name=engine_name)
             prompt_id = engine.submit(prompt)
             result = engine.wait(prompt_id, on_poll=_ticker(report, index, total))
-            image = _one_image(result.images, prompt_id)
+            image = one_image(result.images, prompt_id)
             fetched = engine.fetch(image, Path(staging))
 
             name = f"fish-{serial + offset:03d}.{IMAGE_KIND}.png"
-            final = _move_out(fetched, out_dir / name)
+            final = move_out(fetched, out_dir / name)
 
         if init_image is None:
             source = None

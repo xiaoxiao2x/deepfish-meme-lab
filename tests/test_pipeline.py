@@ -26,6 +26,7 @@ from lab.pipeline import (
     daily_dir,
     make,
     next_serial,
+    parse_serial,
     random_seed,
 )
 from lab.stub import StubEngine
@@ -180,6 +181,14 @@ def test_next_serial_counts_every_kind(tmp_path):
 
 def test_next_serial_is_one_for_a_missing_folder(tmp_path):
     assert next_serial(tmp_path / "nope") == 1
+
+
+def test_parse_serial_only_reads_fish_names():
+    """外来名字（IMG-007.jpg）不算序号 —— 否则它会被当成 7 号去盖 fish-007。"""
+    assert parse_serial(Path("fish-007.orig.png")) == 7
+    assert parse_serial(Path("IMG-007.jpg")) is None
+    assert parse_serial(Path("fish-abc.png")) is None
+    assert parse_serial(Path("fish-.png")) is None
 
 
 def test_daily_dir_uses_iso_date(tmp_path):

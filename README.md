@@ -10,7 +10,7 @@
 
 **实现中** —— 设计与路线已定稿；第一阶段（M1–M4）按 [票](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues) 推进。
 
-M1 环境补齐与 M2 出图管线都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上。下一步是 M3 后处理（去背 / 加字 / 导出）。
+M1 环境补齐、M2 出图管线、M3 的去背都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）。M3 还剩加字与规格导出。
 
 ## 跑起来
 
@@ -21,12 +21,16 @@ python3 -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
 python3 -m lab make --prompt "同一只鲸鱼娘，换个表情" \
     --init-image output/2026-10-23/fish-001.orig.png --denoise 0.55
                             # 底图复用：拿一张旧图当底，把形象钉住（0.55 是起点）
+python3 -m lab sticker output/2026-10-23/fish-001.orig.png
+                            # 去背：出一张透明底贴纸，落在原图旁边（同名同序号）
+                            # 别的图也行；--model 换这次用的去背模型
 python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
 python3 -m lab assets dupes  # 按索引列出重复组
-python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通
+python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通（--rgba 时回的图带透明通道）
 ```
 
-三方依赖只有一个 **Pillow**（读图算哈希用）；`lab doctor` 连它都不碰，纯标准库。
+三方依赖只有一个 **Pillow**（读图算哈希、回读校验去背成品的 alpha）；`lab doctor` 连它都不碰，纯标准库。
+去背的模型推理在引擎里做（ComfyUI-RMBG 的节点），工作台只负责递图与收图 —— 首次用到某只模型时引擎会自己下载权重。
 系统的 `python3` 直接跑（`tomllib` 要 3.11+）。
 
 跑测试需要 pytest 与 Pillow；静态检查用 ruff 与 mypy：

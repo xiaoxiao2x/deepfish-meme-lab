@@ -19,21 +19,27 @@ from typing import Any
 
 __all__ = [
     "REQUIRED_TITLES",
+    "STICKER_TITLES",
     "TITLE_CFG",
     "TITLE_DENOISE",
     "TITLE_INIT_IMAGE",
     "TITLE_NEGATIVE",
+    "TITLE_OUTPUT",
     "TITLE_PROMPT",
+    "TITLE_REMOVE_BG",
     "TITLE_SAMPLER",
     "TITLE_SEED",
     "TITLE_SIZE",
+    "TITLE_SOURCE",
     "TITLE_STEPS",
     "GenSpec",
     "WorkflowError",
     "apply",
+    "apply_sticker",
     "find_by_title",
     "load",
     "missing_titles",
+    "sticker_model",
 ]
 
 
@@ -51,6 +57,14 @@ TITLE_CFG = "引导强度"
 #: 文生图模板里没有「底图」是正常的；该报错的是"用错了模板"。
 TITLE_INIT_IMAGE = "底图"
 TITLE_DENOISE = "重绘强度"
+
+#: 去背模板（fish-sticker.json）的三个标题：喂哪张图、去背在哪、结果写到哪。
+#: 「输出」与生成模板共用（两边都是 SaveImage），另两个是去背独有的 ——
+#: 去背不画图，所以它没有提示词、种子、步数这些旋钮。
+TITLE_SOURCE = "图片"
+TITLE_REMOVE_BG = "去背"
+TITLE_OUTPUT = "输出"
+STICKER_TITLES = (TITLE_SOURCE, TITLE_REMOVE_BG, TITLE_OUTPUT)
 
 #: 注入必须有、缺一个就报错的标题。「采样器」是模板的选择而非业务参数，
 #: 所以它不在这里 —— 但模板结构测试会单独要求它存在。
@@ -190,3 +204,30 @@ def apply(workflow: dict, spec: GenSpec, engine_name: str | None = None) -> dict
             _ = node_id
 
     return prompt
+
+
+def apply_sticker(workflow: dict, engine_name: str) -> dict:
+    """把要去背的那张图注入去背模板副本，返回可提交的 prompt 图。原模板不动。
+
+    engine_name 是那张图在引擎 input 目录里的文件名（见 pipeline.upload_name）——
+    LoadImage 只认自己目录里的名字，路径再对也没用。
+
+    去背模型不在这里换：模板里写的那只（Lucida）就是这次用的那只。模型是模板的
+    选择，和「哪张图」「写到哪儿」不是一类东西（design.md §6.3 只约定三个标题）。
+    """
+    prompt = copy.deepcopy(workflow)
+    _set_input(prompt, TITLE_SOURCE, "image", engine_name)
+    _ = _node_at(prompt, TITLE_REMOVE_BG)  # 没有「去背」节点就当场报错，别白跑一趟
+    return prompt
+
+
+def sticker_model(prompt: dict) -> str:
+    """去背模板里写着的那只模型，读出来给回执用；没有就返回空串。
+
+    这只是一个只读回执：模型跟着模板走，注入那边不该碰它。
+    """
+    node_id = find_by_title(prompt, TITLE_REMOVE_BG)
+    if node_id is None:
+        return ""
+    inputs = prompt[node_id].get("inputs") or {}
+    return str(inputs.get("model") or "")

@@ -4,6 +4,7 @@
     python -m lab assets scan     扫描素材，写索引，报张数与重复
     python -m lab assets dupes    按索引列出重复组
     python -m lab make            给一句话，出一批图（这是工作台的主要用途）
+    python -m lab sticker <图片>  把一张图去背成透明底贴纸
     python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
 退出码：0 = 全绿能干活；1 = 有 FAIL、有没查成的项、或有问题要处理；2 = 命令本身
@@ -302,11 +303,43 @@ def _run_make(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_stub(config: Config) -> int:
+def _run_sticker(config: Config, args: argparse.Namespace) -> int:
+    """`lab sticker` —— 一张图进去，透明底贴纸出来（票 #9）。
+
+    去背的推理在引擎里（ComfyUI-RMBG 的节点），这里只管把图递过去、把成品收好。
+    """
+    from .comfy import EngineError
+    from .postprocess import sticker
+    from .workflows import WorkflowError
+
+    try:
+        made = sticker(config, args.image)
+    except WorkflowError as exc:
+        print(f"工作流模板有问题：{exc}", file=sys.stderr)
+        return 1
+    except EngineError as exc:
+        print(f"引擎没干成：{exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    print()
+    print(f"去背完成，在 {made.path.parent}")
+    print(f"  源图 {made.from_image}")
+    print(f"  {made.id}  模型 {made.model}  {made.path.name}")
+    return 0
+
+
+def _run_stub(config: Config, args: argparse.Namespace) -> int:
     """起假引擎。没有显卡、权重还没下完的时候，靠它把工作台这一段走通。"""
     from .stub import StubEngine
 
-    engine = StubEngine(host=config.comfy.host, port=config.comfy.port).start()
+    engine = StubEngine(
+        host=config.comfy.host,
+        port=config.comfy.port,
+        mode="RGBA" if args.rgba else "RGB",
+    ).start()
     print(f"假引擎已起：http://{engine.host}:{engine.port}")
     print("它不假装懂工作流 —— 收到什么 prompt 都收下，然后报「完成」并回一张小图。")
     print("Ctrl-C 停。")
@@ -386,7 +419,22 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
         help="换这次用的模板（workflows/ 下的文件名；有底图换 img2img 那份，没有换文生图那份）",
     )
 
-    subparsers.add_parser("stub", help="起一个假引擎（无显卡也能端到端调试）")
+    sticker_parser = subparsers.add_parser(
+        "sticker",
+        help="把一张图去背成透明底贴纸（贴着原图落；外来的图落到 output/YYYY-MM-DD/）",
+    )
+    sticker_parser.add_argument(
+        "image", help="要去背的图片路径：工作台出的图和别的图都行"
+    )
+
+    stub_parser = subparsers.add_parser(
+        "stub", help="起一个假引擎（无显卡也能端到端调试）"
+    )
+    stub_parser.add_argument(
+        "--rgba",
+        action="store_true",
+        help="回的图带透明通道 —— 调 lab sticker 时用它，不透明的图证明不了去背",
+    )
 
     args = parser.parse_args(argv)
 
@@ -415,7 +463,10 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
     if args.command == "make":
         return _run_make(config, args)
 
+    if args.command == "sticker":
+        return _run_sticker(config, args)
+
     if args.command == "stub":
-        return _run_stub(config)
+        return _run_stub(config, args)
 
     return 2

@@ -45,9 +45,20 @@ REJECTION = {
 }
 
 
-def default_image() -> bytes:
-    """一张真 PNG，够用来验「取回文件」这一段。"""
-    from PIL import Image
+def default_image(mode: str = "RGB") -> bytes:
+    """一张真 PNG，够用来验「取回文件」这一段。
+
+    mode="RGBA" 时中间画一个不透明的方块、四周留全透明：去背那条路要能看见
+    "真的有透明区域"，整张不透明的图证明不了这件事。
+    """
+    from PIL import Image, ImageDraw
+
+    if mode == "RGBA":
+        image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        ImageDraw.Draw(image).rectangle((16, 16, 47, 47), fill=(30, 120, 220, 255))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
     buffer = BytesIO()
     Image.new("RGB", (64, 64), (30, 120, 220)).save(buffer, format="PNG")
@@ -219,13 +230,15 @@ class StubEngine:
         reject_prompts: bool = False,
         filename: str = STUB_FILENAME,
         image: bytes | None = None,
+        mode: str = "RGB",
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
         self.ticks_before_done = ticks_before_done
         self.reject_prompts = reject_prompts
         self.filename = filename
-        self.image = image if image is not None else default_image()
+        # mode 只在没给 image 时有意义：给了图就以那张图为准
+        self.image = image if image is not None else default_image(mode)
 
         self.host = host
         self.port = port  # 0 = 让系统挑一个

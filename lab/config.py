@@ -82,6 +82,7 @@ class WorkflowsConfig:
 
     default: str  # 文生图
     img2img: str  # 底图复用；#8 之前可能还没有这个文件，所以允许为空
+    sticker: str = ""  # 去背；留空 = 这份配置还没接去背
 
 
 @dataclass(frozen=True)
@@ -181,6 +182,7 @@ def load_config(repo_root: Path | str) -> Config:
     workflows = WorkflowsConfig(
         default=str(_require(data, "workflows.default")),
         img2img=str(workflows_raw.get("img2img") or ""),
+        sticker=str(workflows_raw.get("sticker") or ""),
     )
 
     return Config(

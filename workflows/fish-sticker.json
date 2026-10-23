@@ -1,0 +1,46 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "图片"
+  }
+ },
+ "2": {
+  "class_type": "BiRefNetRMBG",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "model": "Lucida",
+   "sensitivity": 1.0,
+   "mask_blur": 0,
+   "mask_offset": 0,
+   "invert_output": false,
+   "refine_foreground": false,
+   "unload_model": false,
+   "background": "Alpha",
+   "background_color": "#222222"
+  },
+  "_meta": {
+   "title": "去背",
+   "note": "optional 一个都不能少：这个节点用 params[\"键\"] 直接取 mask_blur / mask_offset / invert_output / background，缺一个就是 KeyError（#9 实测）。值全是节点自己的默认值。"
+  }
+ },
+ "3": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "2",
+    0
+   ],
+   "filename_prefix": "fish/sticker"
+  },
+  "_meta": {
+   "title": "输出"
+  }
+ }
+}

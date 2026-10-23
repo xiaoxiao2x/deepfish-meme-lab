@@ -118,7 +118,7 @@ lab/
 └── pipeline.py     串起出图：套模板 → 提交 → 等 → 取回 → 按 fish-NNN 落盘
 ```
 
-（`config.py`、`doctor.py`、`cli.py`、`paths.py`、`assets.py`、`comfy.py`、`stub.py` 已落地 —— 见 #5、#13、#6；`workflows.py` 与 `pipeline.py` 见 #7；`postprocess.py` 与 `registry.py` 按 #11。）
+（`config.py`、`doctor.py`、`cli.py`、`paths.py`、`assets.py`、`comfy.py`、`stub.py` 已落地 —— 见 #5、#13、#6；`workflows.py` 与 `pipeline.py` 见 #7；`postprocess.py` 的去背见 #9；`registry.py` 按 #11。）
 
 **3) `lab doctor`：环境体检**
 
@@ -149,7 +149,7 @@ python -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
 
 | 功能 | 手段 |
 |---|---|
-| **去背** | 工作流里接 `RMBG` 节点（模型优先 Lucida），输出 RGBA PNG |
+| **去背** | 工作流里接 `BiRefNetRMBG` 节点（模型 Lucida、`background=Alpha`），输出 RGBA PNG —— **已达成**（#9） |
 | **加字** | Pillow + `NotoSansCJK-Black.ttc`；自动换行、描边、位置微调 |
 | **规格导出** | 目前只做"原图（1024 级）+ 透明底贴纸 PNG + 带台词成图"三种；**表情包规格（240×240 等）属于非目标，不在本阶段** |
 | **命名与落盘** | `output/YYYY-MM-DD/fish-###.{orig|sticker|captioned}.png` |
@@ -165,8 +165,13 @@ python -m lab caption <贴纸路径> --text "你好呀"        # → 带字成�
 
 对同一张图能依次跑出：原图 → 透明底贴纸 → 带字成图，中文台词渲染正确、无豆腐块。
 
+**去背已达成（2026-10-23，见 #9）**：`python -m lab sticker <图片>` 出一张 RGBA 贴纸 —— 源图是工作台出的就落在它旁边（沿用同一个序号：`fish-007.orig.png` → `fish-007.sticker.png`），别的图落当天目录按当天最大号接；成品落盘前回读验一遍 alpha：接成下标 1 的 `MASK` 引擎在提交时就用 `Return type mismatch` 拒了，接成下标 2 的 `MASK_IMAGE` 能跑完但透明区会丢 —— 回读这一关当场报错，不会悄悄出一张不透明的"贴纸"。加字与规格导出还没做。
+
 ### 风险
 
+- **首次去背要下权重**：Lucida（约 1 GB）第一次用到时由 ComfyUI-RMBG 自己下载到引擎的 `models/RMBG/BiRefNet/`。本机环境里 `all_proxy=socks://…` 与 `no_proxy` 里的 `[::1]` 会让 httpx 报 `Unknown scheme for proxy URL` / `Invalid port: ':1]'`，于是"下载不下来"看起来像"模型坏了"——换一份干净代理环境单独下即可（`scripts/comfy.sh start` 已顺手清掉这两个变量）。
+- **去背节点的 optional 一个都不能少**：`BiRefNetRMBG` 的 `mask_blur` / `mask_offset` / `invert_output` / `background` 声明成 optional，但节点的 `process_image` 用 `params["键"]` 直接取 —— 靠 API 提交时少写一个键就 KeyError（`Error in image processing: 'mask_blur'`）。模板里八个键全写上，值就是节点默认值。
+- **BiRefNet 要 timm**：引擎的 conda 环境起初没装 `timm`，第一次去背才报 `Error loading BiRefNet model: No module named 'timm'`（`pip install timm` 即可）。它不属于 `comfy.required_nodes` 能查出来的东西。
 - **动图去背**：需要逐帧处理，成本与复杂度高。**本阶段明确不做**——动图（100 张 gif 素材、动图表情包）留到本阶段之后。
 - 中文字体在不同字号下的字重选择（Black 做贴纸标题、Regular 做正文），需要试。
 - 描边与背景对比度：透明底上加了字，导出到聊天软件里可能看不清——需要一层白描边。

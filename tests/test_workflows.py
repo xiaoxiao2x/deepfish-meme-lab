@@ -21,6 +21,22 @@ from lab.workflows import find_by_title
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO_ROOT / "workflows").glob("*.json"))
 
+#: 生成模板：走完整出图流程的那两份，那一串采样标题归它们管（票 #4 / #8）。
+GENERATION = [
+    REPO_ROOT / "workflows" / name
+    for name in ("fish-txt2img.json", "fish-img2img.json")
+]
+
+#: 后处理模板：去背，没有采样链也没有提示词（票 #9）。
+STICKER = REPO_ROOT / "workflows" / "fish-sticker.json"
+
+
+def test_every_template_is_classified():
+    """新加的模板得先在生成/后处理里归好类 —— 否则它会被静默漏测。"""
+    classified = {*GENERATION, STICKER}
+    unclassified = sorted(p.name for p in set(WORKFLOWS) - classified)
+    assert not unclassified, f"没归类的模板：{unclassified}"
+
 # 票 #4 约定的标题集合，票 #7 补上「尺寸」与「引导强度」（后者的 cfg 原先挂在
 # CFGGuider 上但没有标题，注入没法定位）。标题写错一个字注入就会静默失效，所以钉死。
 REQUIRED_TITLES = {
@@ -69,7 +85,7 @@ def test_links_point_at_nodes_that_exist(path):
             assert str(value[0]) in wf, f"{node_id}.{key} 指向不存在的节点 {value[0]}"
 
 
-@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", GENERATION, ids=lambda p: p.name)
 def test_agreed_titles_are_present(path):
     missing = REQUIRED_TITLES - _titles(load(path))
     assert not missing, f"缺标题：{sorted(missing)}"
@@ -227,3 +243,98 @@ def test_apply_does_not_touch_the_template_it_was_given():
     )
 
     assert template[find_by_title(template, "底图")]["inputs"]["image"] == before
+
+
+# ---------- 去背模板（票 #9） ----------
+
+
+def _node_by_title(prompt: dict, title: str) -> dict:
+    node_id = find_by_title(prompt, title)
+    assert node_id is not None, f"prompt 里没有标题「{title}」"
+    return prompt[node_id]
+
+
+def test_the_sticker_template_carries_the_agreed_titles():
+    from lab.workflows import STICKER_TITLES
+
+    assert set(STICKER_TITLES) <= _titles(load(STICKER))
+
+
+def test_the_sticker_template_saves_the_alpha_output():
+    """三路输出里接哪一路是决定性的：下标 0 才是带透明区的 IMAGE。"""
+    wf = load(STICKER)
+    remover_id, remover = _only(wf, "BiRefNetRMBG")
+    assert remover["inputs"]["background"] == "Alpha"
+    assert remover["inputs"]["model"] == "Lucida"  # 首选：专攻插画/贴纸/线稿
+    assert wf[remover["inputs"]["image"][0]]["class_type"] == "LoadImage"
+
+    _, saver = _only(wf, "SaveImage")
+    assert saver["inputs"]["images"] == [remover_id, 0]
+
+
+def test_the_sticker_template_spells_out_every_input_the_node_reads_blindly():
+    """`process_image` 用 `params["mask_blur"]` 这样直接取参 —— API 提交少写一个键
+    就是 KeyError（#9 实测栽在 `'mask_blur'` 上）。界面用不会踩：界面会把 widget
+    的值都写进 prompt。"""
+    _, remover = _only(load(STICKER), "BiRefNetRMBG")
+
+    for key in (
+        "sensitivity",
+        "mask_blur",
+        "mask_offset",
+        "invert_output",
+        "refine_foreground",
+        "unload_model",
+        "background",
+        "background_color",
+    ):
+        assert key in remover["inputs"], f"「去背」节点少了 {key}，引擎会 KeyError"
+
+
+def test_apply_sticker_injects_the_uploaded_name():
+    from lab.workflows import apply_sticker
+
+    prompt = apply_sticker(load(STICKER), engine_name="lab-init-abc.png")
+
+    assert _node_by_title(prompt, "图片")["inputs"]["image"] == "lab-init-abc.png"
+    assert _node_by_title(prompt, "去背")["inputs"]["model"] == "Lucida"
+
+
+def test_sticker_model_reads_the_template():
+    from lab.workflows import sticker_model
+
+    assert sticker_model(load(STICKER)) == "Lucida"
+
+
+def test_sticker_model_is_quiet_when_there_is_no_removal_node():
+    """回执不该因为缺节点就炸 —— 那种模板 apply_sticker 那一关已经先报错了。"""
+    from lab.workflows import sticker_model
+
+    assert sticker_model({"1": {"class_type": "LoadImage", "inputs": {}}}) == ""
+
+
+def test_apply_sticker_leaves_the_template_alone():
+    from lab.workflows import apply_sticker
+
+    template = load(STICKER)
+    before = _node_by_title(template, "图片")["inputs"]["image"]
+
+    apply_sticker(template, engine_name="lab-init-abc.png")
+
+    assert _node_by_title(template, "图片")["inputs"]["image"] == before
+
+
+def test_a_template_without_the_removal_node_is_refused():
+    """标题写错一个字就当场报错，别拿一张没去过背的图冒充贴纸。"""
+    from lab.workflows import WorkflowError, apply_sticker
+
+    broken = {
+        nid: node
+        for nid, node in load(STICKER).items()
+        if node["class_type"] != "BiRefNetRMBG"
+    }
+
+    with pytest.raises(WorkflowError) as caught:
+        apply_sticker(broken, engine_name="x.png")
+
+    assert "去背" in str(caught.value)
