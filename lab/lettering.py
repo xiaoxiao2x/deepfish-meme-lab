@@ -28,10 +28,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from .config import Config, ConfigError
-from .naming import plan_output, stage_of
+from .naming import folder_for, plan_output, stage_of
 from .paths import check_still_image
 from .recording import entry_from_base, find_base, used_serials
-from .registry import load_entries, record_path, write_entry
+from .registry import RECORD_NAME, load_entries, write_entry
 
 if TYPE_CHECKING:
     from PIL import ImageFont
@@ -526,10 +526,11 @@ def letter(
         font=choice,
         style=style,
     )
-    # 账先读一遍：源图是当天贴着号的文件时，落点沿用它的号；源图不在账上（外来图）
-    # 就按"当天最大号接着排"，这时光看目录会撞号 —— 撞出来的同号会把上一条无关
-    # 生成的种子借过来（判据 ⑥）。
-    ledger = record_path(cfg.paths.output_dir, today)
+    # 账先读一遍：源图是贴着号的文件时，落点沿用它的号；源图不在账上（外来图）
+    # 就按"那个目录里最大号接着排"，这时光看目录会撞号 —— 撞出来的同号会把上一条
+    # 无关生成的种子借过来（判据 ⑥）。读的是**落点那一本**：给昨天的贴纸加字，
+    # 落点在昨天那个目录，来路那一条也只记在那一本里。
+    ledger = folder_for(cfg.paths.output_dir, source, today) / RECORD_NAME
     entries = load_entries(ledger)
     target, serial = plan_output(
         cfg.paths.output_dir, source, today, LETTERED_KIND, known=used_serials(entries)

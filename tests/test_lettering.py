@@ -446,20 +446,18 @@ def test_the_lettering_lands_in_the_record(tmp_path):
     assert (only.width, only.height) == (480, 480)
 
 
-def test_the_lettering_borrows_the_recipe_of_its_sticker(tmp_path):
-    """加字不碰引擎，能复现靠的是"上一步的参数 + 这句台词" —— 参数从同号那条借。"""
+def _generated_record(tmp_path: Path, kind: str = "orig"):
+    """当天的账里放一条同号的"生成来路"，参数是真的，好认。"""
     from lab.registry import Entry, record_path, write_entry
 
     cfg = _cfg(tmp_path)
-    folder = cfg.paths.output_dir / TODAY.isoformat()
-    source = sticker_png(folder, name="fish-007.sticker.png")
     write_entry(
         record_path(cfg.paths.output_dir, TODAY),
         Entry(
             id="fish-007",
             created_at="2026-10-24T02:00:00+08:00",
-            kind="sticker",
-            file="fish-007.sticker.png",
+            kind=kind,
+            file=f"output/2026-10-24/fish-007.{kind}.png",
             width=480,
             height=480,
             workflow="workflows/fish-txt2img.json",
@@ -472,6 +470,13 @@ def test_the_lettering_borrows_the_recipe_of_its_sticker(tmp_path):
             comfyui_version="0.0.0-stub",
         ),
     )
+    return cfg
+
+
+def test_the_lettering_borrows_the_recipe_of_its_original(tmp_path):
+    """加字不碰引擎，能复现靠的是"上一步的参数 + 这句台词" —— 参数从同号的原图借。"""
+    cfg = _generated_record(tmp_path)
+    source = sticker_png(cfg.paths.output_dir / TODAY.isoformat())
 
     letter(cfg, source, "你好呀", painter=RecordingPainter(), today=TODAY)
 
@@ -479,6 +484,23 @@ def test_the_lettering_borrows_the_recipe_of_its_sticker(tmp_path):
     assert made[LETTERED_KIND].seed == 12345
     assert made[LETTERED_KIND].prompt == "chibi blue whale girl"
     assert made[LETTERED_KIND].comfyui_version == "0.0.0-stub", "没借到引擎版本"
+
+
+def test_the_lettering_will_not_borrow_from_a_sticker_record(tmp_path):
+    """同号只剩贴纸那条（原图被清走了）时宁可不借，也不把去背那一站的参数当成配方。
+
+    借贴纸那条会把 `workflows/fish-sticker.json` 与去背模型的文件名写进这条记录，
+    写进配方库就是一条假的来路 —— 比留空更坏。
+    """
+    cfg = _generated_record(tmp_path, kind="sticker")
+    source = sticker_png(cfg.paths.output_dir / TODAY.isoformat())
+
+    letter(cfg, source, "你好呀", painter=RecordingPainter(), today=TODAY)
+
+    made = {one.kind: one for one in records(tmp_path)}
+    assert made[LETTERED_KIND].seed == 0
+    assert made[LETTERED_KIND].workflow == ""
+    assert made[LETTERED_KIND].comfyui_version == "未知"
 
 
 def test_letter_refuses_an_animated_picture(tmp_path):

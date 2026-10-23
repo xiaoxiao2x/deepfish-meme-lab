@@ -20,20 +20,19 @@ from datetime import date
 from pathlib import Path
 
 from .config import Config
-from .naming import parse_serial, stage_of
+from .naming import entry_id, parse_serial, stage_of
 from .paths import check_image_file
-from .recording import UNKNOWN_VERSION, image_size, repo_relative
+from .recording import entry_from_base, repo_relative
 from .registry import (
     RECORD_NAME,
     Entry,
     library_path,
     load_entries,
-    now_iso,
     record_path,
     write_entry,
 )
 
-__all__ = ["IMPORTED_KIND", "find_entry", "gallery", "keep", "kind_of"]
+__all__ = ["IMPORTED_KIND", "KNOWN_KINDS", "find_entry", "gallery", "keep", "kind_of"]
 
 
 #: 账里没有来路的那张图，阶段记成这个（docs/design.md §6.2 的第四种）。
@@ -41,23 +40,55 @@ __all__ = ["IMPORTED_KIND", "find_entry", "gallery", "keep", "kind_of"]
 IMPORTED_KIND = "imported"
 
 
+#: 三站落盘时会写进文件名的那几段阶段名（`lab/naming.py` 的
+#: `output_name(serial, kind)` 拼出来的中间那一段）。**只认这三个**：拆名字的规则
+#: 对任何三段以上的名字都给出一个非空值，而外来的图也叫得出中间那段
+#: （`screenshot.2026.10.24.png` 的 `24`、`cover.final.png` 的 `final`）——
+#: 照拆名规则一律当真，keep 一张素材图就会往 schema 里写一个没人认识的阶段。
+KNOWN_KINDS = frozenset({"orig", "sticker", "captioned"})
+
+
 def kind_of(path: Path) -> str:
     """这张是哪一站出的：`fish-007.sticker.png` 的 `sticker`。
 
     keep 要知道这一点，回当天账里才对得上号 —— 拆名字的规则在 `lab/naming.py`，
     三站各写一遍迟早会错开。名字不是这个形状（外来的图）就给空串。
+
+    两道条件都得过：号是 `fish-###` 那个形状，且中间那段是上面三种之一。只看
+    中间那段是不行的 —— 外来的图也有中间那段。
     """
-    return stage_of(path)
+    if parse_serial(path) is None:
+        return ""
+    stage = stage_of(path)
+    return stage if stage in KNOWN_KINDS else ""
 
 
 def _ident(path: Path) -> str:
     """这张图的号。`fish-007.*` 沿用 7；外来的图就用它自己的文件名当号。
 
-    外来图不能给空号：配方库按（号，阶段）去重，一堆空号会互相盖掉，
+    外来图不能给空号：配方库按（号，阶段，日期）去重，一堆空号会互相盖掉，
     最后只剩一条。文件名是它唯一稳定的身份。
     """
     serial = parse_serial(path)
-    return f"fish-{serial:03d}" if serial is not None else Path(path).stem
+    return entry_id(serial) if serial is not None else Path(path).stem
+
+
+def _fresh_ident(kept: list[Entry], ident: str, kind: str, where: str) -> str:
+    """给没有来路的图挑一个还没被占的号。
+
+    外来图的号是它的文件名（`cover.png` → `cover`），而文件名不是身份：
+    同一天从两个目录各留一张 `cover.png`，两条的（号，阶段，日期）一模一样，
+    后写的那条会把前一条**静默盖掉** —— 配方库里只剩一张图，人还以为留了两张。
+    撞上了就在后面接 `-2`、`-3`；同一张图再留一次（路径没变）不算撞，
+    那是幂等的那一条。
+    """
+    taken = {one.id for one in kept if one.kind == kind and one.file != where}
+    if ident not in taken:
+        return ident
+    suffix = 2
+    while f"{ident}-{suffix}" in taken:
+        suffix += 1
+    return f"{ident}-{suffix}"
 
 
 def _points_at(cfg: Config, recorded: str, image: Path) -> bool:
@@ -67,7 +98,11 @@ def _points_at(cfg: Config, recorded: str, image: Path) -> bool:
     也可能是画成绝对路径的旧条目 —— 两种都得认，不然人一换工作目录就 keep 不上。
     """
     path = Path(recorded)
-    if not path.is_absolute():
+    if recorded.startswith("~"):
+        # 记录里的 `~/...` 是"在仓库外但在家目录里"那类（`repo_relative` 折出来的），
+        # 原样拼仓库根是拼不出来的，得先展开。
+        path = path.expanduser()
+    elif not path.is_absolute():
         path = Path(cfg.repo_root) / path
     try:
         return path.resolve() == image.resolve()
@@ -120,6 +155,7 @@ def keep(
     这张图本身。返回值不吞掉这个差别，界面才不会把两件事说成一件。
     """
     source = check_image_file(image, what="要保留的图")
+    kept = load_entries(library_path(cfg.repo_root))
     entries: list[Entry] = []
     for ledger in _candidate_ledgers(cfg, source, today):
         entries.extend(load_entries(ledger))
@@ -128,22 +164,19 @@ def keep(
         # 出生时间与参数都照旧，只把落点改成相对仓库根 —— 从这条起它就是定稿了。
         entry = replace(found, file=repo_relative(cfg, source))
     else:
-        width, height = image_size(source)
-        entry = Entry(
-            id=_ident(source),
-            created_at=now_iso(),
-            kind=kind_of(source) or IMPORTED_KIND,
-            file=repo_relative(cfg, source),
-            width=width,
-            height=height,
+        # 没有来路的一条：生成那几栏交给 entry_from_base 留空，别在这儿手抄一份 ——
+        # 十几个字段各写一遍，改一处漏一处就是两套默认值。
+        kind = kind_of(source) or IMPORTED_KIND
+        entry = entry_from_base(
+            cfg,
+            None,
+            ident=_fresh_ident(
+                kept, _ident(source), kind, repo_relative(cfg, source)
+            ),
+            path=source,
+            kind=kind,
             workflow="",
             model="",
-            prompt="",
-            negative="",
-            seed=0,
-            steps=0,
-            cfg=0.0,
-            comfyui_version=UNKNOWN_VERSION,
         )
     write_entry(library_path(cfg.repo_root), entry, library=True)
     return entry, found is not None

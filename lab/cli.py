@@ -39,7 +39,7 @@ __all__ = ["main"]
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 BADGE = {Status.OK: "[ OK ]", Status.WARN: "[WARN]", Status.FAIL: "[FAIL]"}
-RULE = "─" * 60
+RULE_WIDTH = 60  # 报告横线的默认宽度；表格比这宽时按表宽画
 LABEL_WIDTH = 14  # 按显示宽度算，所以中英文标签都能对齐
 KIND_LABEL = {"exact": "字节一致", "perceptual": "画面近似", "suspect": "疑似同图"}
 
@@ -62,26 +62,35 @@ def _shorten(text: str, width: int) -> str:
     if _display_width(text) <= width:
         return text
     kept = ""
-    used = 0
     for ch in text:
-        step = _display_width(ch)
-        if used + step > width - 1:
+        # 少留一格给省略号：它自己占一格，按整宽截会顶出去一格。
+        if _display_width(kept + ch) > width - 1:
             break
         kept += ch
-        used += step
     return kept + "…"
 
 
-def _section(title: str, lines: list[str], footer: str | None = None) -> None:
+def _section(
+    title: str,
+    lines: list[str],
+    footer: str | None = None,
+    *,
+    width: int = RULE_WIDTH,
+) -> None:
+    """一段报告：标题、横线、正文、（可选）横线 + 一行收尾。
+
+    横线默认画 60 格；表格比这宽时按表宽画，否则表格会从横线底下漏出去。
+    """
+    rule = "─" * width
     print()
     print(title)
-    print(RULE)
+    print(rule)
     for line in lines:
         print(line)
     if footer is not None:
-        print(RULE)
+        print(rule)
         print(footer)
-    print(RULE)
+    print(rule)
     print()
 
 
@@ -388,6 +397,19 @@ def _run_lettering(config: Config, args: argparse.Namespace) -> int:
 GALLERY_COLUMNS = (("号", 10), ("阶段", 9), ("模型", 26), ("种子", 11), ("留的时间", 17))
 
 
+def _gallery_width() -> int:
+    """表格实际占的格数 —— 列宽之和 + 列间空格。横线照这个画。"""
+    return sum(width for _, width in GALLERY_COLUMNS) + len(GALLERY_COLUMNS) - 1
+
+
+def _gallery_row(cells: dict[str, str]) -> str:
+    """一行表格 —— 每格先按列宽截再补空格，长名字不会把后面的列顶歪。"""
+    return " ".join(
+        _pad(_shorten(cells.get(title, ""), width), width)
+        for title, width in GALLERY_COLUMNS
+    )
+
+
 def _when(stamp: str) -> str:
     """把 ISO 时间裁成表里放得下的那一截：`2026-10-24 02:05`。
 
@@ -405,23 +427,26 @@ def _print_gallery(entries: list[Entry]) -> None:
         )
         return
 
-    header = " ".join(_pad(title, width) for title, width in GALLERY_COLUMNS)
-    lines = [header, RULE]
+    lines = [_gallery_row({title: title for title, _ in GALLERY_COLUMNS})]
     for one in entries:
-        cells = {
-            "号": one.id,
-            "阶段": one.kind,
-            "模型": _shorten(one.model or "—", 26),
-            "种子": str(one.seed),
-            "留的时间": _when(one.created_at),
-        }
         lines.append(
-            " ".join(_pad(cells[title], width) for title, width in GALLERY_COLUMNS)
+            _gallery_row(
+                {
+                    "号": one.id,
+                    "阶段": one.kind,
+                    "模型": one.model or "—",
+                    "种子": str(one.seed),
+                    "留的时间": _when(one.created_at),
+                }
+            )
         )
     _section(
         "鱼片加工厂 · 配方库",
         lines,
-        f"{len(entries)} 条，库里就是这些。按配方重跑还没做（见 #12）。",
+        f"{len(entries)} 条，库里就是这些。"
+        "时间一栏是这一条落账的时刻：工作台出的图记生成那一刻，外来的图记搬进库那一刻。"
+        "按配方重跑还没做（见 #12）。",
+        width=_gallery_width(),
     )
 
 

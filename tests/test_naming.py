@@ -74,6 +74,25 @@ def test_plan_output_skips_numbers_the_record_already_used(tmp_path):
     assert serial == 2
 
 
+def test_plan_output_will_not_take_a_number_from_outside_the_output_folder(tmp_path):
+    """外面拿进来一张也叫 fish-007 的图，而账里 007 已经是别人的 —— 换号，不抢。
+
+    沿用号的前提是"这张就是那个号的原图"；从素材目录里捡到同名文件时这个前提
+    不成立，跟着它落会顶掉当天真有的那条，去背/加字还会借到别人的种子。
+    """
+    cfg = _cfg(tmp_path)
+    outside = tmp_path / "素材" / "fish-007.orig.png"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+
+    target, serial = plan_output(
+        cfg.paths.output_dir, outside, TODAY, "sticker", known=(7,)
+    )
+
+    assert serial == 8
+    assert target == cfg.paths.output_dir / TODAY.isoformat() / "fish-008.sticker.png"
+
+
 def test_plan_output_keeps_the_sources_number_even_with_a_record(tmp_path):
     """源图自己就在 output/ 里时沿用它的号 —— 记录里用过的号不该把这一步挤走。"""
     cfg = _cfg(tmp_path)

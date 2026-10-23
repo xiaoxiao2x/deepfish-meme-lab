@@ -83,6 +83,60 @@ def test_the_record_keeps_the_field_names_design_doc_uses(tmp_path):
     assert payload["source"] is None
 
 
+#: docs/design.md §6.2 那个 jsonc 块里的键，按原顺序抄下来。
+#: 少一个、多一个、拼错大小写，都是"文档里写的"和"文件里存的"分了家。
+DESIGN_SCHEMA_KEYS = (
+    "id",
+    "createdAt",
+    "kind",
+    "file",
+    "width",
+    "height",
+    "animated",
+    "workflow",
+    "model",
+    "prompt",
+    "negative",
+    "seed",
+    "steps",
+    "cfg",
+    "comfyuiVersion",
+    "requestedWidth",
+    "requestedHeight",
+    "source",
+    "caption",  # glossary-ok: 配方条目的台词字段名，§6.2 定死的对外键名
+    "src",
+    "preview",
+    "large",
+)
+
+
+def test_the_entry_writes_exactly_the_keys_the_design_doc_lists():
+    """§6.2 是配方库的对外契约，它和 as_json 得逐键对得上（含顺序）。"""
+    assert tuple(entry().as_json()) == DESIGN_SCHEMA_KEYS
+
+
+def test_the_design_doc_in_repo_still_lists_the_same_keys():
+    """文档里那一段真的还在、真的还是这些键 —— 只对代码自己的常量没意义。"""
+    import re
+
+    text = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+    start = text.index("### 6.2 配方条目 schema")
+    fence = chr(96) * 3
+    opening = fence + "jsonc"
+    after = text.index(opening, start) + len(opening)
+    block = text[after : text.index(fence, after)]
+    # 只认顶层的 2 空格缩进；source 的一层子键缩进 4 格，不该混进来。
+    found = tuple(
+        key
+        for line in block.splitlines()
+        if line.startswith('  "')
+        for key in re.findall(r'"([A-Za-z]+)":', line)
+    )
+
+    assert found == DESIGN_SCHEMA_KEYS
+
+
 def test_the_record_file_lives_beside_the_pictures_of_that_day(tmp_path):
     """全量记录跟当天的图放一起：output/ 整个目录不进 git，它自然也就没进去。"""
     assert record_path(tmp_path / "output", TODAY) == (
@@ -115,6 +169,19 @@ def test_the_two_kinds_of_the_same_id_coexist(tmp_path):
     write_entry(path, entry(kind="sticker", file="output/2026-10-24/fish-001.sticker.png"))
 
     assert [one.kind for one in load_entries(path)] == ["orig", "sticker"]
+
+
+def test_the_same_id_on_two_days_does_not_overwrite_yesterdays(tmp_path):
+    """号只在当天之内唯一，两本账却长期累积 —— 去重不能只看（号，阶段）。
+
+    实测过的场景：昨天留过 fish-001 的带字成图，今天又从 001 起步，两条撞在
+    一起时早期实现直接盖掉前一条，配方库悄悄少一条，谁也不知道。
+    """
+    path = library_path(tmp_path)
+    write_entry(path, entry(kind="captioned", seed=111, created_at="2026-10-23T10:00:00+08:00"), library=True)
+    write_entry(path, entry(kind="captioned", seed=222, created_at="2026-10-24T10:00:00+08:00"), library=True)
+
+    assert [one.seed for one in load_entries(path)] == [111, 222]
 
 
 def test_an_empty_record_file_reads_as_nothing(tmp_path):

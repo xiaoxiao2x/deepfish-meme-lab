@@ -17,6 +17,8 @@ from pathlib import Path
 
 __all__ = [
     "daily_dir",
+    "entry_id",
+    "folder_for",
     "next_serial",
     "output_name",
     "parse_serial",
@@ -82,9 +84,28 @@ def next_serial(directory: Path, *, known: Iterable[int] = ()) -> int:
     return max(used, default=0) + 1
 
 
+def entry_id(serial: int) -> str:
+    """配方条目的号：`fish-007`。三站共用这个号，靠后缀区分是哪一站出的。"""
+    return f"fish-{serial:03d}"
+
+
 def output_name(serial: int, kind: str) -> str:
     """成品叫什么名字。`kind` 是后缀那一段：orig / sticker / captioned。"""
-    return f"fish-{serial:03d}.{kind}.png"
+    return f"{entry_id(serial)}.{kind}.png"
+
+
+def folder_for(output_dir: Path, source: Path, today: date | None = None) -> Path:
+    """这一版落在哪个目录 —— 也就是"记在哪本账里"。
+
+    源图就在 `output/` 里时贴着它落：贴纸和原图放一起才方便对着看，跨日去背
+    昨天的图也落在昨天那个目录（那一本账才是它的来路）。素材图（在素材根里）
+    不往那儿写，落到今天那个目录。
+    """
+    output_dir = Path(output_dir)
+    source = Path(source)
+    if output_dir in source.parents:
+        return source.parent
+    return daily_dir(output_dir, today)
 
 
 def plan_output(
@@ -100,19 +121,27 @@ def plan_output(
     源图就在 output/ 里时贴着它落 —— 贴纸和原图放一起才方便对着看；素材图
     （在素材根里）不往那儿写，落到今天那个目录，按当天最大号接着排。
 
-    序号沿用源图的：fish-007 的原图与贴纸是同一个配方条目的两个面。
-    同名成品已经存在就是"把这张重做一遍"，由调用方决定覆盖还是报错。
+    序号沿用源图的：fish-007 的原图与贴纸是同一个配方条目的两个面。两个条件挡住
+    了不该沿用的情况：
 
-    `known` 是当天全量记录里已经用过的号，只对"外来图按最大号接着排"那条路有用。
-    光看目录会撞号：账里有 fish-001、图被清走之后拿一张素材图去背，目录里没有 001
-    了，于是新的贴纸又叫 fish-001 —— 两条无关的生成顶着同一个 id，后面借参数的
-    时候（贴纸与带字成图都要借同号上一条）就会把前一条的 prompt / seed 抄进来。
+    - 名字不是 `fish-###` 那个形状（素材图 `IMG-2024.png`）—— 没有号可沿用；
+    - **源图不在 `output/` 树里，而那个号账里已经被占了** —— 外面拿进来一张叫
+      `fish-007.orig.png` 的图不算：那个号是别人的，跟着它落会顶掉当天真有的
+      fish-007，之后借参数就借到那条无关生成的 prompt / seed。
+
+    源图只是在 output 里换了个日子（跨日去背昨天的图）仍然沿用 —— 号是它在
+    `output/` 里的身份，跟哪一天无关。名字带号、又是从 output 外面拿进来的图（把
+    贴纸拷出去再加字），账里没占这个号时也照旧沿用：它就是那张 007。
+
+    `known` 是那本账里已经用过的号，"按最大号接着排"那条路和上面第二条判断都用它。
+    光看目录会撞号：账里有 fish-001、图被清走之后目录里没有 001 了，于是新的贴纸
+    又叫 fish-001 —— 两条无关的生成顶着同一个 id。
     """
     output_dir = Path(output_dir)
-    folder = (
-        source.parent if output_dir in source.parents else daily_dir(output_dir, today)
-    )
+    source = Path(source)
+    folder = folder_for(output_dir, source, today)
     serial = parse_serial(source)
-    if serial is None:
+    taken = set(known)
+    if serial is None or (output_dir not in source.parents and serial in taken):
         serial = next_serial(folder, known=known)
     return folder / output_name(serial, kind), serial

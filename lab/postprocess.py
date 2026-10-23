@@ -17,11 +17,11 @@ from pathlib import Path
 
 from .comfy import EngineClient, EngineError
 from .config import Config
-from .naming import plan_output
+from .naming import folder_for, plan_output
 from .paths import check_still_image
 from .pipeline import move_out, one_image, upload_name
 from .recording import engine_version, entry_from_base, find_base, used_serials
-from .registry import load_entries, record_path, write_entry
+from .registry import RECORD_NAME, load_entries, write_entry
 from .workflows import apply_sticker, load, sticker_model
 
 __all__ = ["STICKER_KIND", "MadeSticker", "sticker"]
@@ -110,7 +110,10 @@ def sticker(
     engine_image = one_image(result.images, prompt_id)
 
     # 账先读一遍：外来图按"当天最大号接着排"时，光看目录会撞号（判据 ⑥）。
-    ledger = record_path(cfg.paths.output_dir, today)
+    # 读的是**落点那一本**，不是今天那本 —— 给昨天的原图去背时落点在昨天那个目录，
+    # 原图那一条也只记在那一本里。只翻今天那本的话，种子和引擎版本会双双退化成
+    # 0 与「未知」，而这条链上明明有真值可借。
+    ledger = folder_for(cfg.paths.output_dir, source, today) / RECORD_NAME
     entries = load_entries(ledger)
     target, serial = plan_output(
         cfg.paths.output_dir, source, today, STICKER_KIND, known=used_serials(entries)

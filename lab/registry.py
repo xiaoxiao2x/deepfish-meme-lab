@@ -112,9 +112,14 @@ class Entry:
     caption: str | None = None  # glossary-ok: 字段名照 docs/design.md §6.2 的对外形状
 
     @property
-    def key(self) -> tuple[str, str]:
-        """一张图在上面的唯一标识：同一个号的两个面靠 kind 区分。"""
-        return (self.id, self.kind)
+    def key(self) -> tuple[str, str, str]:
+        """一张图在账里的唯一标识：号 + 阶段 + 哪一天。
+
+        带上日期那一截是必须的：号是"同一天内自增"的，两本账却都要长期累积 ——
+        配方库跨日攒的东西里，10-23 的 fish-001 与 10-24 的 fish-001 是两次无关
+        的生成，只按（号，阶段）去重会把前一条静默盖掉。
+        """
+        return (self.id, self.kind, self.created_at[:10])
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -200,11 +205,20 @@ def load_entries(path: Path) -> list[Entry]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"{path} 不是合法 JSON：{exc} —— 修好它或挪走再重来。") from exc
     if not isinstance(data, dict):
-        raise ValueError(f"{path} 里该是一个对象，实际是 {type(data).__name__}。")
+        raise ValueError(
+            f"{path} 里该是一个对象，实际是 {type(data).__name__} —— 修好它或挪走再重来。"
+        )
     items = data.get("items") or []
+    if not isinstance(items, list):
+        raise ValueError(
+            f"{path} 的 items 该是一串条目，实际是 {type(items).__name__}"
+            " —— 修好它或挪走再重来。"
+        )
     try:
         return [Entry.from_json(item) for item in items]
-    except ValueError as exc:
+    except (ValueError, TypeError, AttributeError) as exc:
+        # 键缺了、值是 null、条目根本不是对象 —— 对读账的人来说是同一件事：
+        # 这本账读不全。三种都收进来，别让哪一种漏成 traceback。
         raise ValueError(f"{path} 里有一条读不出来：{exc} —— 修好它或挪走再重来。") from exc
 
 

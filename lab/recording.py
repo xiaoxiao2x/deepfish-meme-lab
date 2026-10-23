@@ -22,6 +22,10 @@ from .naming import parse_serial
 from .registry import Entry, EntrySource, now_iso
 from .workflows import GenSpec
 
+#: 出片那一站的阶段名。写在这儿是因为 `find_base` 要按它挑"来路那一条"，
+#: 而 recording 是三个站共用的翻译层 —— 各自 import 一份常量会转成环。
+IMAGE_KIND = "orig"
+
 __all__ = [
     "UNKNOWN_VERSION",
     "engine_version",
@@ -96,18 +100,17 @@ def used_serials(entries: list[Entry]) -> list[int]:
 
 
 def find_base(entries: list[Entry], ident: str) -> Entry | None:
-    """当天账里同号的那条"生成来路"。
+    """同号那一条"生成来路"，也就是那张原图。
 
-    优先取 orig：贴纸与带字成图的 prompt、种子、步数都是从那张原图来的，
-    从另一张贴纸身上借只会借到更远的一手。
+    **只认 orig**。贴纸和带字成图的 prompt、种子、步数全是从原图来的，链子上的
+    中间站（贴纸自己）没有新东西可借；账里同号只剩贴纸时（原图被清走）宁可不借，
+    也不去借贴纸那条 —— 那会把 `workflows/fish-sticker.json` 和去背模型的文件名
+    当成这张图的配方记下来，写进配方库就是一条假的来路。
     """
-    candidates = [one for one in entries if one.id == ident]
-    if not candidates:
-        return None
-    for one in candidates:
-        if one.kind == "orig":
+    for one in entries:
+        if one.id == ident and one.kind == IMAGE_KIND:
             return one
-    return candidates[0]
+    return None
 
 
 def entry_for_gen(
@@ -145,6 +148,11 @@ def entry_for_gen(
     )
 
 
+def _from_base(base: Entry | None, field: str) -> str:
+    """上一步那条的某一栏；没有上一步就是空串 —— 空着比编一个更像话。"""
+    return str(getattr(base, field)) if base is not None else ""
+
+
 def _borrow_version(version: str | None, base: Entry | None) -> str:
     """这次没问到版本，就借上一条的；上一条也没有，才写「未知」。
 
@@ -165,8 +173,8 @@ def entry_from_base(
     ident: str,
     path: Path,
     kind: str,
-    workflow: str,
-    model: str,
+    workflow: str | None = None,
+    model: str | None = None,
     version: str | None = None,
     source: EntrySource | None = None,
     caption: str | None = None,  # glossary-ok: 字段名照 docs/design.md §6.2
@@ -180,6 +188,9 @@ def entry_from_base(
 
     `size` 给「画布多大」，省掉一次读图：加字那一站不换画布尺寸，手里的尺寸就是
     成品的；而且那一站的画字后端是可注入的，测试里根本不落盘，去读文件只会读了个空。
+
+    `workflow`/`model` 不填就跟着上一步走 —— 去背站要填它自己的（换模板、换模型），
+    加字站两样都不变，让"借上一步"这条规则只在这一处，省得每个调用方各写一遍。
     """
     width, height = size if size is not None else image_size(path)
     return Entry(
@@ -189,8 +200,8 @@ def entry_from_base(
         file=repo_relative(cfg, path),
         width=width,
         height=height,
-        workflow=workflow,
-        model=model,
+        workflow=workflow if workflow is not None else _from_base(base, "workflow"),
+        model=model if model is not None else _from_base(base, "model"),
         prompt=base.prompt if base is not None else "",
         negative=base.negative if base is not None else "",
         seed=base.seed if base is not None else 0,

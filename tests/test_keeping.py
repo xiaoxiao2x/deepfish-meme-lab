@@ -172,6 +172,22 @@ def test_keep_finds_the_recipe_after_the_picture_moved_elsewhere(tmp_path):
     assert kept.file == "收藏/fish-001.orig.png", "落点得跟着图走，不是跟着旧记录"
 
 
+def test_a_record_pointing_into_the_home_folder_still_resolves(tmp_path, monkeypatch):
+    """记录里的落点可能是 `~/...`（仓库外但在家目录里那种）。
+
+    直接把它拼到仓库根上是拼不出东西的，`~/收藏/fish-001.orig.png` 会变成一个
+    根本不存在的路径 —— 路径那一轮就白比了，白退到（号，阶段）那一步。
+    """
+    cfg = _cfg(tmp_path)
+    home = tmp_path / "家"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    image = picture(home / "收藏")
+    entries = [entry(file="~/收藏/fish-001.orig.png")]
+
+    assert find_entry(cfg, entries, image) is not None
+
+
 def test_find_entry_falls_back_to_the_serial_and_stage(tmp_path):
     """路径对不上时退到（号，阶段）：账里记的落点被手工改过也还能认出来。"""
     cfg = _cfg(tmp_path)
@@ -224,6 +240,60 @@ def test_kind_of_reads_the_stage_out_of_the_name(tmp_path):
     assert kind_of(Path("IMG-2024.jpg")) == ""
 
 
+def test_kind_of_ignores_names_that_only_look_like_a_stage(tmp_path):
+    """文件名里带了几个点不代表它是工作台出的 —— 认不出来就当没来路（imported）。
+
+    照搬"倒数第二段就是阶段"的话，`screenshot.2026.10.24.png` 会得到 `kind="24"`，
+    这个值会一路写进进 git 的配方库，成为一条谁也读不懂的阶段。
+    """
+    assert kind_of(Path("screenshot.2026.10.24.png")) == ""
+    assert kind_of(Path("cover.final.png")) == ""
+    assert kind_of(Path("a.b.png")) == ""
+
+
+def test_keeping_a_familiar_looking_name_still_lands_as_imported(tmp_path):
+    cfg = _cfg(tmp_path)
+    source = picture(tmp_path, name="screenshot.2026.10.24.png")
+
+    kept, traced = keep(cfg, source, today=TODAY)
+
+    assert not traced
+    assert kept.kind == IMPORTED_KIND, "认不出阶段的图不能带个假阶段进配方库"
+    assert kept.id == "screenshot.2026.10.24"
+
+
+def test_two_pictures_with_the_same_name_do_not_overwrite_each_other(tmp_path):
+    """同一天留两张同名但不同路的图，得都留下。
+
+    外来图的号是文件名，而文件名不是身份：配方库按（号，阶段，日期）去重，
+    两个目录下各有一张 `cover.png` 时两条会撞成同一个 key，后写的那条把前一条
+    静默盖掉 —— 库里的图少了一张，而人以为留了两张。
+    """
+    cfg = _cfg(tmp_path)
+    first = picture(tmp_path / "甲", name="cover.png")
+    second = picture(tmp_path / "乙", name="cover.png")
+
+    one, _ = keep(cfg, first, today=TODAY)
+    two, _ = keep(cfg, second, today=TODAY)
+
+    assert one.id == "cover"
+    assert two.id == "cover-2", "撞号得让开，不能让后来那条顶掉前一条"
+    kept = load_entries(library_path(tmp_path))
+    assert {one.file for one in kept} == {"甲/cover.png", "乙/cover.png"}
+
+
+def test_keeping_the_same_picture_twice_stays_idempotent(tmp_path):
+    """同一张外来图留两遍仍然只有一条 —— 换号只该发生在真的撞了另一张图时。"""
+    cfg = _cfg(tmp_path)
+    source = picture(tmp_path / "收藏", name="cover.png")
+
+    keep(cfg, source, today=TODAY)
+    keep(cfg, source, today=TODAY)
+
+    kept = load_entries(library_path(tmp_path))
+    assert [one.id for one in kept] == ["cover"]
+
+
 # ---------- 表格（验收判据 3） ----------
 
 
@@ -257,3 +327,103 @@ def test_gallery_refuses_to_pretend_a_broken_library_is_empty(tmp_path):
         gallery(_cfg(tmp_path))
 
     assert "JSON" in str(caught.value)
+
+# ---------- 命令行（验收判据 2 与 3 的对外形状） ----------
+
+
+def _width(text: str) -> int:
+    """一行表格的显示宽度 —— 一个汉字占两格，不能拿 len 当宽度。"""
+    import unicodedata
+
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def _twin_repo(tmp_path: Path) -> Path:
+    """造一个小仓库：真配置，输出目录跟着仓库走。
+
+    不抽到 conftest：这个文件要的是"一个能 load_config 的根"，别处要的是
+    "一个连着假引擎的根"，两件事合起来反而更绕。
+    """
+    import shutil
+
+    root = tmp_path / "repo"
+    (root / "config").mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "config" / "default.toml", root / "config" / "default.toml")
+    return root
+
+
+def test_cli_keep_prints_where_the_recipe_went(tmp_path, capsys):
+    """命令行是这张票的对外接口：留完得说清留在哪、落点在哪。"""
+    from lab.cli import main
+
+    root = _twin_repo(tmp_path)
+    cfg = load_config(root)
+    folder = cfg.paths.output_dir / date.today().isoformat()
+    image = picture(folder)
+    write_entry(
+        record_path(cfg.paths.output_dir, date.today()),
+        entry(file=image.relative_to(root).as_posix()),
+    )
+
+    code = main(["keep", str(image)], repo_root=root)
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "已留：fish-001.orig" in out
+    assert "当天的记录" in out
+    assert str(library_path(root)) in out
+
+
+def test_cli_gallery_lists_the_library(tmp_path, capsys):
+    from lab.cli import main
+
+    root = _twin_repo(tmp_path)
+    cfg = load_config(root)
+    folder = cfg.paths.output_dir / date.today().isoformat()
+    image = picture(folder)
+    write_entry(
+        record_path(cfg.paths.output_dir, date.today()),
+        entry(file=image.relative_to(root).as_posix()),
+    )
+    assert main(["keep", str(image)], repo_root=root) == 0
+    capsys.readouterr()
+
+    code = main(["gallery"], repo_root=root)
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "鱼片加工厂 · 配方库" in out
+    assert "fish-001" in out
+    assert "12345" in out, "种子得看得见 —— 判据 3 要的就是这一栏"
+
+
+def test_cli_gallery_keeps_the_columns_aligned_for_long_ids(tmp_path, capsys):
+    """号列也得截：外来的图拿文件名当号，长起来会把后面几列整张表顶歪。"""
+    from lab.cli import main
+
+    root = _twin_repo(tmp_path)
+    image = picture(tmp_path, name="screenshot.2026.10.24.png")
+    assert main(["keep", str(image)], repo_root=root) == 0
+    capsys.readouterr()
+
+    code = main(["gallery"], repo_root=root)
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    lines = out.splitlines()
+    header = next(i for i, line in enumerate(lines) if line.startswith("号"))
+    row = lines[header + 1]
+    assert "screensho…" in row, f"号列该截断：{row}"
+    assert _width(row) == _width(lines[header]), f"表头和行不一样宽：{lines[header]!r} / {row!r}"
+
+
+def test_cli_gallery_of_an_empty_library_sends_you_to_keep(tmp_path, capsys):
+    from lab.cli import main
+
+    code = main(["gallery"], repo_root=_twin_repo(tmp_path))
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "还没留东西" in out
+    assert "lab keep" in out, "空库不是死路：得告诉人下一步是哪条命令"
+

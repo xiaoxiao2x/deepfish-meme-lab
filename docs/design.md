@@ -85,7 +85,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
         │  naming.py      成品落点与编号              │
         │  postprocess.py Pillow 去背与校验           │
         │  lettering.py   加字排版（Pillow 画字）     │
-        │  registry.py    登记册读写                  │
+        │  registry.py    两本账的读写                │
+        │  recording.py   产出 → 条目（三站共用）     │
+        │  keeping.py     保留：搬进配方库            │
         │  cli.py         命令行入口                  │
         └──────┬────────────────────────┬──────────┘
                │ HTTP 127.0.0.1:8188    │ 文件读写
@@ -107,7 +109,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 - **后处理层**（`postprocess.py`）：编排一趟去背 —— 把图喂进后处理模板、经引擎层跑一趟、用 Pillow 回读校验。模型推理在 ComfyUI 里做（`BiRefNetRMBG` 节点），本层只负责"喂哪张、验什么"。
 - **加字层**（`lettering.py`）：不经过引擎，纯 Pillow 画字。折行与坐标是纯计算，真正画像素交给一个可注入的后端，所以"交给后端的话对不对"能在不碰像素的情况下断言。
 - **命名层**（`naming.py`）：原图、贴纸、带字成图三站共用的"这一版落哪儿、叫什么号"。`fish-NNN` 三态同号，靠后缀区分；只认目录与日期，不认识配置，也不认识引擎。
-- **登记层**（`registry.py`）：写 `output/…/registry.local.json`（全量）与 `data/registry.json`（定稿配方），见 §6。
+- **记账层**（`registry.py`）：管两本账的读写 —— `output/…/registry.local.json`（全量，本机、只活当天、不进 git）与 `data/registry.json`（配方库，只记定稿，进 git），见 §6。
+- **翻译层**（`recording.py`）：把一次产出（`GenSpec` + 落点 + 引擎版本 + 来路）翻成一条条目，出片 / 去背 / 加字三站共用这一份翻译。去背与加字不换尺寸也不换种子，参数按同号的 `orig` 条目借；借不到就留空，不自造。
+- **保留层**（`keeping.py`）：`keep` 这个**动作** —— 从当天的全量记录里找出那张的那一条，搬进配方库；找不到来路的（外来的图、账被清走了）照样收，但记成 `imported` 并当场说明重跑不出来。`gallery` 只读配方库。
 - **表现层**（第二阶段）：FastAPI + 模板。
 
 **明确不做的架构决定**：不做数据库（JSON 文件够）、不做任务队列（ComfyUI 自己有队列）、不做守护进程（用一次起一次）、不做插件系统。
@@ -147,9 +151,9 @@ ComfyUI 能画，而且画得比工作台好——它本来就是这个项目的
 
 ```jsonc
 {
-  "id": "fish-001",                    // 同一天内自增，格式 fish-###
+  "id": "fish-001",                    // 同一天内自增，格式 fish-###（imported 用文件名）
   "createdAt": "2026-10-22T00:31:05+08:00",
-  "kind": "sticker",                   // orig | sticker | captioned
+  "kind": "sticker",                   // orig | sticker | captioned | imported
   "file": "output/2026-10-22/fish-001.sticker.png",
   "width": 240, "height": 240,          // 成品量出来的像素
   "animated": false,
