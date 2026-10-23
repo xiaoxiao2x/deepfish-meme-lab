@@ -29,12 +29,32 @@ python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通
 三方依赖只有一个 **Pillow**（读图算哈希用）；`lab doctor` 连它都不碰，纯标准库。
 系统的 `python3` 直接跑（`tomllib` 要 3.11+）。
 
-跑测试需要 pytest 与 Pillow（装在 `.venv` 里）：
+跑测试需要 pytest 与 Pillow；静态检查用 ruff 与 mypy：
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install pytest Pillow        # 静态检查可选：ruff mypy
-.venv/bin/python -m pytest
+.venv/bin/pip install pytest Pillow ruff mypy
+```
+
+改完代码跑门禁 —— 三条都过才算过：
+
+```bash
+./scripts/check.sh          # pytest + ruff + mypy
+./scripts/check.sh ruff     # 只跑其中一条
+```
+
+`scripts/git-hooks/pre-commit` 会在提交前自动调一遍，每个克隆装一次：
+`git config core.hooksPath scripts/git-hooks`；某次确实想跳过：`SKIP_CHECKS=1 git commit ...`。
+检查用哪些规则写在 `pyproject.toml` 的 `[tool.ruff]` / `[tool.mypy]` 里，不靠工具默认值
+（本次验证的版本：ruff 0.17.1、mypy 2.4.0、Python 3.11+）。
+
+出图要引擎先跑着 —— 工作台不负责启停（[ADR-0004](docs/adr/0004-no-comfyui-lifecycle.md)）：
+
+```bash
+./scripts/comfy.sh start    # 起 ComfyUI，等到 8188 就绪才返回
+./scripts/comfy.sh status   # 查通不通
+./scripts/comfy.sh log      # 看日志
+./scripts/comfy.sh stop
 ```
 
 ## 文档

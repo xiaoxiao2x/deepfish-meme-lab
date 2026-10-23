@@ -1,0 +1,17 @@
+#!/bin/sh
+# 提交前跑一遍门禁（scripts/check.sh）。
+#
+# 这个文件随仓库走，但 Git 不会自动用它 —— 每个克隆装一次：
+#   git config core.hooksPath scripts/git-hooks
+#
+# 确实想跳过这次（只动文档、或急着提交）：
+#   SKIP_CHECKS=1 git commit ...
+set -eu
+
+if [ "${SKIP_CHECKS:-0}" = "1" ]; then
+    echo "SKIP_CHECKS=1：这次不跑门禁。"
+    exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+exec "$root/scripts/check.sh"

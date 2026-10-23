@@ -12,3 +12,37 @@ dependencies = ["Pillow>=12"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+# ── 检查配置：写在仓库里，别让它随工具版本的默认值漂移 ──────────────────
+# 此前 ruff/mypy 都没有任何配置，跑出来是什么结果取决于装的是哪个版本
+# （实测 ruff 0.17 的默认集已包含 C4/UP/I 这些）。升级一次工具，门禁就换成
+# 了另一套规则；更糟的情况是某类问题悄悄不再被检查。写下来它才是门禁。
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# 显式 select：默认规则集随版本变。
+select = [
+    "E4",  # import 相关的错误
+    "E7",  # 语句层错误
+    "E9",  # 运行时错误
+    "F",   # pyflakes：未用变量、未定义名
+    "C4",  # 能用推导式 / 字面量的地方
+    "UP",  # 语法可以更现代
+    "I",   # import 排序
+    "B",   # bugbear：常见陷阱
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["lab"]
+# 这几条是本次定下的收紧项，lab/ 已经全过（不是「以后再说」的待办）。
+# 注意：mypy 的配置文件用下划线键名（--strict-equality 那种连字符写法只属于命令行），
+# mypy 2.4 不认得 --strict-config，未知键只打一行 Unrecognized option 就照常成功 ——
+# 所以 check.sh 自己把那一行当失败（配置写错等于没在检查，这坑本次真踩到过）。
+strict_equality = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true

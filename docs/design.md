@@ -344,7 +344,7 @@ python3 -m lab assets dupes  # 按索引列出重复组明细
 | **生图权重** | **零**（`models/` 26 个子目录全空；全盘那 4 个 `.safetensors` 是 MinerU 与 compressed_tensors 的测试文件，与生图无关） |
 | **custom_nodes** | 已装 ComfyUI-Manager、ComfyUI-RMBG、ComfyUI-KJNodes（见 #3） |
 | 服务状态 | 8188 未监听（ComfyUI 未运行） |
-| 启动方式 | `conda activate comfyui` → `python main.py` → `127.0.0.1:8188`（见 `/home/xiao/workspace/comfyUI/记录.md`） |
+| 启动方式 | `conda activate comfyui` → `python main.py` → `127.0.0.1:8188`（见 `/home/xiao/workspace/comfyUI/记录.md`）。无 tty 的环境（agent 的 shell）跑不了 `conda activate`，用 `./scripts/comfy.sh start` —— 内部是绝对路径解释器 + `setsid` + 日志重定向，等价于上面两条 |
 | 工具链 | ffmpeg 8.0.1、ImageMagick 7.1.2、Python + Pillow 12.1.1、Node v24.16.0、pnpm 11.28.5 |
 | 磁盘 | 可用 **455 GB** |
 | 参考教程 | `/home/xiao/视频/ComfyUICourse/`（EP01–EP22，含 FLUX.2 Klein、Inpainting、Upscale） |

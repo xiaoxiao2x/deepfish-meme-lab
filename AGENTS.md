@@ -11,6 +11,12 @@
 
 硬约束（详见 design.md §3.2「非目标」）：不做网站、不训 LoRA、不做多用户、不接在线生图 API。素材（两个来源共 803 张，入池 415 张）与生成成品不进仓库，仓库只留 `workflows/` 与 `data/registry.json`。
 
+## 改完代码
+
+跑 `./scripts/check.sh` —— pytest + ruff + mypy，三条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。
+
+要出图得先有引擎，工作台不管它的生命周期（ADR-0004）：`./scripts/comfy.sh start|stop|status|log`。
+
 ## Agent skills
 
 ### Issue tracker

@@ -204,7 +204,8 @@ def mean_absolute_error(a: Path, b: Path) -> float:
     """两张图缩到 128×128 灰度后的平均像素差（0–255）。"""
     left = gray_bytes(Path(a))
     right = gray_bytes(Path(b))
-    return sum(abs(x - y) for x, y in zip(left, right)) / len(left)
+    # strict=False：长度不一致时按短的截断（沿用原来的行为），只把这件事写明。
+    return sum(abs(x - y) for x, y in zip(left, right, strict=False)) / len(left)
 
 
 def _hamming(x: int, y: int) -> int:

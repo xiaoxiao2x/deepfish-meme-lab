@@ -57,6 +57,8 @@ cd /home/xiao/workspace/comfyUI/ComfyUI
 python main.py          # → 127.0.0.1:8188
 ```
 
+无 tty 的环境（agent 的 shell）跑不了 `conda activate`，用 `./scripts/comfy.sh start`：它走绝对路径解释器 + `setsid` + 日志重定向，等到 8188 就绪才返回。
+
 ### 完成标志
 
 - ComfyUI 启动无报错，界面能打开
