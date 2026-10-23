@@ -8,14 +8,16 @@
 
 ## 状态
 
-**实现中** —— 设计与路线已定稿；第一阶段（M1–M4）按 [票](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues) 推进，`python -m lab doctor` 已经能跑。
+**实现中** —— 设计与路线已定稿；第一阶段（M1–M4）按 [票](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues) 推进。
 
-下一步是 #2 / #3（权重与节点就位）——引擎装齐之前，出图管线没有东西可编排。
+M1 环境补齐与 M2 出图管线都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed。下一步是 M3 后处理（去背 / 加字 / 导出）。
 
 ## 跑起来
 
 ```bash
 python3 -m lab doctor        # 体检：引擎、权重、节点、素材、输出目录
+python3 -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
+                            # 出一批图，落到 output/<日期>/，打印路径与 seed
 python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
 python3 -m lab assets dupes  # 按索引列出重复组
 python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通

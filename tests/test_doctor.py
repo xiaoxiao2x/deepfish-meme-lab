@@ -40,6 +40,19 @@ note = "文本编码器"
 asset_roots = []
 output_dir = "output"
 asset_index = "assets/index.local.json"
+
+[workflows]
+default = "fish-txt2img.json"
+
+[generate]
+count = 4
+steps = 20
+cfg = 5.0
+width = 1024
+height = 1024
+denoise = 0.55
+prompt_prefix = ""
+negative = ""
 """
 
 

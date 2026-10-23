@@ -112,10 +112,11 @@ lab/
 ├── assets.py       素材扫描与索引（只读引用）
 ├── comfy.py        ComfyUI HTTP 客户端（提交 / 轮询 / 取回）
 ├── stub.py         假引擎（无显卡也能端到端调试）
-└── workflows.py    模板加载 + 参数注入
+├── workflows.py    模板加载 + 参数注入
+└── pipeline.py     串起出图：套模板 → 提交 → 等 → 取回 → 按 fish-NNN 落盘
 ```
 
-（`config.py`、`doctor.py`、`cli.py`、`paths.py`、`assets.py`、`comfy.py`、`stub.py` 已落地 —— 见 #5、#13、#6；`workflows.py` 与 `postprocess.py` 按 #7 落地，`registry.py` 按 #11。）
+（`config.py`、`doctor.py`、`cli.py`、`paths.py`、`assets.py`、`comfy.py`、`stub.py` 已落地 —— 见 #5、#13、#6；`workflows.py` 与 `pipeline.py` 见 #7；`postprocess.py` 与 `registry.py` 按 #11。）
 
 **3) `lab doctor`：环境体检**
 
@@ -130,6 +131,8 @@ python -m lab doctor
 python -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
 # → output/2026-10-22/ 下出现 4 张 PNG，终端打印各自路径与 seed
 ```
+
+**已达成（2026-10-23，见 #7）**：`--count 4` 在 base 4B / 20 步下 92 秒出 4 张，命名 `fish-001.orig.png`…；同 seed 同参数两次跑出**字节相同**的图；把模板节点 ID 全部重排后参数仍准确落到对应节点（从引擎 `/history` 回读执行图核对）。「第 N 步」的实时进度拿不到——那需要订阅 `/ws` 的 `progress` 消息，当前只报已等秒数。
 
 ### 风险
 

@@ -1,0 +1,474 @@
+"""出片管线的行为：一句话进去，一批图出来。
+
+这里的分层很清楚：
+- **对着 stub 引擎**跑一条真的端到端（子进程、真命令、真搬文件），证明
+  "无显卡也能跑同一条命令"不是口号；
+- **对着记录型假引擎**跑参数注入，因为要验的是"交给引擎的话对不对"，
+  这种情况下把 prompt 捞出来看才是真正的行为断言。
+
+假引擎只在 `_run` 的 client 接缝上出现 —— 不是 mock 掉被测代码，
+是替换掉那个本来就该被替换的外部物（和 test_comfy 对 stub 的态度一致）。
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from lab.comfy import GeneratedImage, JobResult
+from lab.config import load_config
+from lab.pipeline import (
+    MAX_SEED,
+    SilentProgress,
+    daily_dir,
+    make,
+    next_serial,
+    random_seed,
+)
+from lab.stub import StubEngine
+from lab.workflows import GenSpec
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = REPO_ROOT / "workflows" / "fish-txt2img.json"
+
+
+def png_bytes() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (8, 8), (10, 20, 30)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def spec(**overrides) -> GenSpec:
+    base = GenSpec(
+        prompt="chibi blue whale girl",
+        negative="",
+        seed=12345,
+        steps=20,
+        cfg=5.0,
+        width=1024,
+        height=1024,
+    )
+    return GenSpec(**{**base.__dict__, **overrides})
+
+
+class RecordingEngine:
+    """记录每次提交的 prompt，其余照 EngineClient 的样子说话。
+
+    它不假装懂工作流 —— 记下来的 prompt 是给人看的证据，图是固定的一张真 PNG。
+    """
+
+    def __init__(self) -> None:
+        self.prompts: list[dict] = []
+        self.waits: list[str] = []
+        self.fetches: list[str] = []
+        self._counter = 0
+
+    def submit(self, prompt: dict, client_id: str | None = None) -> str:
+        _ = client_id
+        self.prompts.append(prompt)
+        self._counter += 1
+        return f"job-{self._counter}"
+
+    def wait(self, prompt_id: str, on_poll=None) -> JobResult:
+        self.waits.append(prompt_id)
+        if on_poll is not None:
+            on_poll(1, 0.5)  # 让上层报一次"还在等"
+        image = GeneratedImage(
+            filename="fish/txt2img_00001_.png", subfolder="", kind="output", node="13"
+        )
+        return JobResult(prompt_id=prompt_id, images=(image,), files=(), history={})
+
+    def fetch(self, image: GeneratedImage, dest_dir: Path) -> Path:
+        self.fetches.append(image.filename)
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        target = dest_dir / Path(image.filename).name
+        target.write_bytes(png_bytes())
+        return target
+
+
+class BatchedEngine(RecordingEngine):
+    """一次提交回来 N 张图的引擎 —— 模拟模板里把 batch_size 改大。"""
+
+    def __init__(self, copies: int = 4) -> None:
+        super().__init__()
+        self.copies = copies
+
+    def wait(self, prompt_id: str, on_poll=None) -> JobResult:
+        result = super().wait(prompt_id, on_poll)
+        images = tuple(
+            GeneratedImage(
+                filename=f"fish/txt2img_0000{n}_.png",
+                subfolder="",
+                kind="output",
+                node="13",
+            )
+            for n in range(1, self.copies + 1)
+        )
+        return JobResult(
+            prompt_id=result.prompt_id, images=images, files=(), history={}
+        )
+
+
+def _run(tmp_path: Path, engine=None, spec_kwargs=None, **kwargs):
+    from dataclasses import replace
+
+    cfg = load_config(REPO_ROOT)
+    cfg = replace(cfg, paths=replace(cfg.paths, output_dir=tmp_path / "output"))
+    return make(
+        cfg,
+        spec(**(spec_kwargs or {})),
+        client=engine or RecordingEngine(),
+        progress=SilentProgress(),
+        today=date(2026, 10, 23),
+        **kwargs,
+    )
+
+
+# ---------- 命名与落盘 ----------
+
+
+def test_make_writes_count_images_into_a_daily_folder(tmp_path):
+    made = _run(tmp_path, count=4)
+
+    assert len(made) == 4
+    folder = tmp_path / "output" / "2026-10-23"
+    assert {p.path.parent for p in made} == {folder}
+    assert all(p.path.exists() for p in made)
+
+
+def test_names_follow_fish_serial_dot_kind(tmp_path):
+    made = _run(tmp_path, count=2)
+
+    assert [p.path.name for p in made] == ["fish-001.orig.png", "fish-002.orig.png"]
+
+
+def test_serials_continue_after_existing_files(tmp_path):
+    folder = tmp_path / "output" / "2026-10-23"
+    folder.mkdir(parents=True)
+    (folder / "fish-007.orig.png").write_bytes(b"x")
+
+    made = _run(tmp_path, count=2)
+
+    assert [p.path.name for p in made] == ["fish-008.orig.png", "fish-009.orig.png"]
+
+
+def test_next_serial_counts_every_kind(tmp_path):
+    """fish-001 是一个配方条目，原图/贴纸/带字共用序号，不该分 kind 数。"""
+    folder = tmp_path / "output" / "2026-10-23"
+    folder.mkdir(parents=True)
+    (folder / "fish-003.sticker.png").write_bytes(b"x")
+
+    assert next_serial(folder) == 4
+
+
+def test_next_serial_is_one_for_a_missing_folder(tmp_path):
+    assert next_serial(tmp_path / "nope") == 1
+
+
+def test_daily_dir_uses_iso_date(tmp_path):
+    assert daily_dir(tmp_path, date(2026, 1, 2)) == tmp_path / "2026-01-02"
+
+
+# ---------- 搬运，不是引用 ----------
+
+
+def test_images_are_moved_out_of_the_engine_staging_area(tmp_path):
+    """引擎的 output 迟早会被清掉 —— 所以图必须是搬过来的，staging 得是空的。"""
+    engine = RecordingEngine()
+    made = _run(tmp_path, engine=engine, count=1)
+
+    assert engine.fetches == ["fish/txt2img_00001_.png"]  # 引擎侧的名字只在这出现
+    assert made[0].engine_filename == "fish/txt2img_00001_.png"
+    assert made[0].path.read_bytes() == png_bytes()  # 字节真的过来了
+
+
+def test_engine_filename_is_not_reused_as_the_output_name(tmp_path):
+    """引擎回的名字（txt2img_00001_）不能直接当成品名。"""
+    made = _run(tmp_path, count=1)
+
+    assert made[0].path.name != "txt2img_00001_.png"
+
+
+# ---------- 种子 ----------
+
+
+def test_each_image_gets_its_own_seed(tmp_path):
+    made = _run(tmp_path, count=3, seed=1000)
+
+    assert [p.spec.seed for p in made] == [1000, 1001, 1002]
+
+
+def test_seed_is_written_into_the_prompt_it_sent(tmp_path):
+    engine = RecordingEngine()
+    _run(tmp_path, engine=engine, count=2, seed=777)
+
+    seeds = [
+        node["inputs"]["noise_seed"]
+        for prompt in engine.prompts
+        for node in prompt.values()
+        if (node.get("_meta") or {}).get("title") == "种子"
+    ]
+    assert seeds == [777, 778]
+
+
+def test_same_seed_gives_the_same_batch_again(tmp_path):
+    """同种子同参数 = 同一批种子序列，这样单张也能重跑。"""
+    first = _run(tmp_path / "a", count=3, seed=42)
+    second = _run(tmp_path / "b", count=3, seed=42)
+
+    assert [p.spec.seed for p in first] == [p.spec.seed for p in second]
+
+
+def test_seed_wraps_instead_of_overflowing(tmp_path):
+    made = _run(tmp_path, count=2, seed=MAX_SEED)
+
+    assert [p.spec.seed for p in made] == [MAX_SEED, 0]
+
+
+def test_random_seed_stays_in_range():
+    for _ in range(50):
+        assert 0 <= random_seed() <= MAX_SEED
+
+
+# ---------- 参数注入 ----------
+
+
+def test_business_values_land_in_the_title_nodes(tmp_path):
+    engine = RecordingEngine()
+    _run(
+        tmp_path,
+        engine=engine,
+        count=1,
+        seed=5,
+    )
+
+    prompt = engine.prompts[0]
+    by_title = {
+        (node.get("_meta") or {}).get("title"): node
+        for node in prompt.values()
+        if (node.get("_meta") or {}).get("title")
+    }
+    assert by_title["提示词"]["inputs"]["text"] == "chibi blue whale girl"
+    assert by_title["负面词"]["inputs"]["text"] == ""
+    assert by_title["种子"]["inputs"]["noise_seed"] == 5
+    assert by_title["步数"]["inputs"]["steps"] == 20
+    assert by_title["引导强度"]["inputs"]["cfg"] == 5.0
+    assert by_title["尺寸"]["inputs"]["width"] == 1024
+
+
+def test_injection_survives_node_ids_being_reshuffled(tmp_path):
+    """重排工作流会换掉全部节点 ID，注入靠标题所以必须仍然生效。"""
+    reshuffled = {}
+    for position, (node_id, node) in enumerate(
+        json.loads(WORKFLOW.read_text(encoding="utf-8")).items(), start=101
+    ):
+        _ = node_id
+        reshuffled[str(position)] = node
+
+    engine = RecordingEngine()
+    made = _run(tmp_path, engine=engine, count=1, seed=9)
+
+    # 拿重排后的模板再跑一次：pipeline 读的是 workflows/ 下的文件，所以这里直接比 prompt
+    from lab.workflows import apply
+
+    applied = apply(reshuffled, spec(seed=9))
+    injected = {
+        (node.get("_meta") or {}).get("title"): node["inputs"].get("noise_seed")
+        for node in applied.values()
+        if (node.get("_meta") or {}).get("title") == "种子"
+    }
+    assert injected["种子"] == 9
+    assert engine.prompts  # 原来的路径也照常工作
+    assert made
+
+
+def test_size_is_consistent_across_every_node_that_has_one(tmp_path):
+    engine = RecordingEngine()
+    _run(tmp_path, engine=engine, count=1)
+    engine.prompts.clear()
+    _run(
+        tmp_path,
+        engine=engine,
+        count=1,
+        spec_kwargs={"width": 768, "height": 512},
+    )
+
+    prompt = engine.prompts[0]
+    sized = [
+        node["inputs"]
+        for node in prompt.values()
+        if "width" in node.get("inputs", {}) and "height" in node.get("inputs", {})
+    ]
+    assert sized, "模板里应该至少有一个带尺寸的节点"
+    assert all(s["width"] == 768 and s["height"] == 512 for s in sized)
+
+
+# ---------- 进度 ----------
+
+
+class RecordingProgress:
+    def __init__(self) -> None:
+        self.events: list[tuple] = []
+
+    def start(self, index: int, total: int, seed: int) -> None:
+        self.events.append(("start", index, total, seed))
+
+    def waiting(self, index: int, total: int, elapsed: float) -> None:
+        self.events.append(("waiting", index, total))
+
+    def done(self, index: int, total: int, path: Path, seed: int) -> None:
+        self.events.append(("done", index, total, seed))
+
+
+def test_progress_speaks_once_per_image(tmp_path):
+    progress = RecordingProgress()
+    cfg = load_config(REPO_ROOT)
+    from dataclasses import replace
+
+    cfg = replace(cfg, paths=replace(cfg.paths, output_dir=tmp_path / "output"))
+    make(
+        cfg,
+        spec(),
+        count=2,
+        client=RecordingEngine(),
+        progress=progress,
+        today=date(2026, 10, 23),
+    )
+
+    kinds = [event[0] for event in progress.events]
+    assert kinds.count("start") == 2
+    assert kinds.count("done") == 2
+    assert kinds.count("waiting") == 2  # 假引擎每次 wait 报一次
+
+
+# ---------- 出错 ----------
+
+
+def test_count_below_one_is_refused(tmp_path):
+    with pytest.raises(ValueError):
+        _run(tmp_path, count=0)
+
+
+def test_a_batched_template_is_refused_instead_of_silently_dropped(tmp_path):
+    """模板 batch_size 被改成 N 时，一次提交回来 N 张同种子的图。
+
+    它们没法单独重跑，所以宁可当场报错 —— 白算几分钟再悄悄丢掉 N-1 张更糟。
+    """
+    made_before = sorted((tmp_path / "output").rglob("*.png")) if (tmp_path / "output").is_dir() else []
+    assert made_before == []
+
+    with pytest.raises(ValueError, match="batch_size"):
+        _run(tmp_path, count=1, engine=BatchedEngine(copies=4))
+
+    assert sorted((tmp_path / "output").rglob("*.png")) == []
+
+
+# ---------- 对着 stub 引擎真跑 ----------
+
+
+def test_make_runs_against_the_stub_engine(tmp_path):
+    """无显卡也能端到端：同一句命令，对着 stub 出声。"""
+    from dataclasses import replace
+
+    cfg = load_config(REPO_ROOT)
+    cfg = replace(cfg, paths=replace(cfg.paths, output_dir=tmp_path / "output"))
+
+    with StubEngine() as engine:
+        from lab.comfy import EngineClient
+
+        client = EngineClient(
+            engine.host, engine.port, poll_interval=0.01, max_polls=50
+        )
+        made = make(
+            cfg,
+            spec(),
+            count=2,
+            client=client,
+            progress=SilentProgress(),
+            today=date(2026, 10, 23),
+        )
+
+    assert [p.path.name for p in made] == ["fish-001.orig.png", "fish-002.orig.png"]
+    assert all(p.path.read_bytes() == engine.image for p in made)
+
+
+# ---------- 命令行 ----------
+
+
+def _twin_repo(tmp_path: Path, port: int) -> Path:
+    """造一个小仓库：真的配置 + 真的工作流，只有引擎端口指到 stub 上。
+
+    这样命令走的是同一条路径（argparse → 管线 → 引擎客户端 → HTTP），
+    唯一的替换是"引擎在哪" —— 也就是 stub 存在的意义。
+    """
+    import shutil
+
+    repo = tmp_path / "repo"
+    (repo / "config").mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "config" / "default.toml", repo / "config" / "default.toml")
+    shutil.copytree(REPO_ROOT / "workflows", repo / "workflows")
+    (repo / "config" / "local.toml").write_text(
+        f'[comfy]\nhost = "127.0.0.1"\nport = {port}\n', encoding="utf-8"
+    )
+    return repo
+
+
+def test_cli_make_prints_each_path_and_seed(tmp_path, capsys):
+    """票面的验收标准：终端打印每张的路径与种子。"""
+    from lab.cli import main
+
+    with StubEngine() as engine:
+        repo = _twin_repo(tmp_path, engine.port)
+        code = main(
+            ["make", "--prompt", "一条蓝色大肥鱼", "--count", "2", "--seed", "100"],
+            repo_root=repo,
+        )
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "fish-001.orig.png" in out
+    assert "fish-002.orig.png" in out
+    assert "seed=100" in out
+    assert "seed=101" in out
+
+
+def test_cli_make_creates_the_daily_folder(tmp_path, capsys):
+    from lab.cli import main
+
+    with StubEngine() as engine:
+        repo = _twin_repo(tmp_path, engine.port)
+        main(["make", "-p", "x", "-n", "1"], repo_root=repo)
+
+    capsys.readouterr()
+    folders = [p for p in (repo / "output").iterdir() if p.is_dir()]
+    assert len(folders) == 1
+    assert folders[0].name == date.today().isoformat()
+    assert [f.name for f in folders[0].iterdir()] == ["fish-001.orig.png"]
+
+
+def test_cli_make_needs_a_prompt(tmp_path, capsys):
+    """没给 --prompt 就当用错命令（退出码 2），不是默默画点什么。"""
+    from lab.cli import main
+
+    with pytest.raises(SystemExit) as caught:
+        main(["make"], repo_root=_twin_repo(tmp_path, 1))
+
+    assert caught.value.code == 2
+    assert "--prompt" in capsys.readouterr().err
+
+
+def test_cli_make_refuses_an_empty_prompt(tmp_path, capsys):
+    from lab.cli import main
+
+    code = main(["make", "-p", "   "], repo_root=_twin_repo(tmp_path, 1))
+
+    assert code == 2
+    assert "画什么" in capsys.readouterr().err

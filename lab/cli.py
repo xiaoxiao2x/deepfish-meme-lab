@@ -3,6 +3,7 @@
     python -m lab doctor          检查环境齐不齐
     python -m lab assets scan     扫描素材，写索引，报张数与重复
     python -m lab assets dupes    按索引列出重复组
+    python -m lab make            给一句话，出一批图（这是工作台的主要用途）
     python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
 退出码：0 = 全绿能干活；1 = 有 FAIL、有没查成的项、或有问题要处理；2 = 命令本身
@@ -96,7 +97,10 @@ def _print_assets_report(index: Index, index_path: Path) -> None:
             else ""
         )
         rows.append(
-            ("收口", f"第二级候选 {index.candidates} 对，第三级拦下 {index.vetoed} 对{span}")
+            (
+                "收口",
+                f"第二级候选 {index.candidates} 对，第三级拦下 {index.vetoed} 对{span}",
+            )
         )
     rows.append(("索引", str(index_path)))
 
@@ -117,7 +121,9 @@ def _print_dupes(index: Index) -> None:
     _section("鱼片加工厂 · 重复素材", lines)
 
 
-def _run_assets(config: Config, action: str | None, verify_readonly: bool = False) -> int:
+def _run_assets(
+    config: Config, action: str | None, verify_readonly: bool = False
+) -> int:
     # 到这里才拉 Pillow —— 见文件头的说明
     from .assets import (
         StaleIndex,
@@ -170,6 +176,114 @@ def _run_assets(config: Config, action: str | None, verify_readonly: bool = Fals
     return 1 if index.problems else 0
 
 
+class _MakeProgress:
+    """把管线的进度说给终端听。
+
+    两条刻意的克制：
+    - **不刷屏**：等不到 3 秒不吭声，之后每 2 秒最多一行。一张图要 2.5 秒，
+      每张都打"已等 0.5 秒"只会把有用的路径和种子顶出屏幕。
+    - **不假装知道步数**：轮询只能知道"等了多久"。真实步数要订阅引擎的 WebSocket
+      progress 消息，那一层留到确实需要时再做（见 docs/design.md）。
+    """
+
+    QUIET_UNTIL = 3.0  # 秒
+    REFRESH_EVERY = 2.0  # 秒
+
+    def __init__(self, stream=None) -> None:
+        self._stream = stream or sys.stdout
+        self._last = 0.0
+
+    def start(self, index: int, total: int, seed: int) -> None:
+        self._last = 0.0
+        print(f"[{index}/{total}] 出图中 · 种子 {seed}", file=self._stream, flush=True)
+
+    def waiting(self, index: int, total: int, elapsed: float) -> None:
+        if elapsed < self.QUIET_UNTIL:
+            return
+        if elapsed - self._last < self.REFRESH_EVERY:
+            return
+        self._last = elapsed
+        print(
+            f"[{index}/{total}] 还在算 · 已等 {elapsed:.0f} 秒",
+            file=self._stream,
+            flush=True,
+        )
+
+    def done(self, index: int, total: int, path: Path, seed: int) -> None:
+        print(
+            f"[{index}/{total}] {path}  seed={seed}",
+            file=self._stream,
+            flush=True,
+        )
+
+
+def _run_make(config: Config, args: argparse.Namespace) -> int:
+    """`lab make` —— 一句话进去，一批图出来。
+
+    参数覆盖顺序：命令行 > config/default.toml 的 [generate]。这一层是**业务参数**，
+    翻译成节点参数是 workflows.py 的事，所以这里只拼一个 GenSpec 就交出去。
+    """
+    from .comfy import EngineError
+    from .pipeline import make, random_seed
+    from .workflows import GenSpec, WorkflowError
+
+    prompt = (args.prompt or "").strip()
+    if not prompt:
+        print("--prompt 不能是空的：总得告诉它画什么。", file=sys.stderr)
+        return 2
+
+    gen = config.generate
+    prefix = gen.prompt_prefix
+    spec = GenSpec(
+        prompt=f"{prefix}{prompt}" if prefix else prompt,
+        negative=args.negative if args.negative is not None else gen.negative,
+        # 种子留空即随机；填了就锁死，批量时从它往上递增（见 pipeline._specs）
+        seed=args.seed if args.seed is not None else random_seed(),
+        steps=args.steps if args.steps is not None else gen.steps,
+        cfg=args.cfg if args.cfg is not None else gen.cfg,
+        width=args.width if args.width is not None else gen.width,
+        height=args.height if args.height is not None else gen.height,
+    )
+
+    # --workflow 是文件名覆盖，得让 Config 那一层也认；用 dataclasses.replace 临时换掉
+    if args.workflow:
+        from dataclasses import replace as _replace
+
+        config = _replace(
+            config, workflows=_replace(config.workflows, default=args.workflow)
+        )
+
+    # 起点种子已经写进 spec 了，不再往 make 传 seed —— 让它从 spec.seed 往上递增，
+    # 这样「同种子同参数」重来的就是整批，而不是四张撞成一张。
+    try:
+        made = make(
+            config,
+            spec,
+            count=args.count,
+            progress=_MakeProgress(),
+        )
+    except WorkflowError as exc:
+        print(f"工作流模板有问题：{exc}", file=sys.stderr)
+        return 1
+    except EngineError as exc:
+        print(f"引擎没干成：{exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    if not made:
+        print("一张也没出。", file=sys.stderr)
+        return 1
+
+    folder = made[0].path.parent
+    print()
+    print(f"出了 {len(made)} 张，在 {folder}")
+    for one in made:
+        print(f"  {one.id}  seed={one.spec.seed}  {one.path.name}")
+    return 0
+
+
 def _run_stub(config: Config) -> int:
     """起假引擎。没有显卡、权重还没下完的时候，靠它把工作台这一段走通。"""
     from .stub import StubEngine
@@ -208,6 +322,41 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
     )
     assets_sub.add_parser("dupes", help="按已有索引列出重复组")
 
+    make_parser = subparsers.add_parser(
+        "make", help="给一句话，出一批图（写到 output/YYYY-MM-DD/）"
+    )
+    make_parser.add_argument(
+        "--prompt", "-p", required=True, help="画什么。中文英文都行"
+    )
+    make_parser.add_argument(
+        "--count",
+        "-n",
+        type=int,
+        default=None,
+        help="出几张（默认取 [generate].count）",
+    )
+    make_parser.add_argument(
+        "--seed",
+        "-s",
+        type=int,
+        default=None,
+        help="锁死种子；不给就随机（每张各记自己的）",
+    )
+    make_parser.add_argument(
+        "--negative", default=None, help="负面词（默认取 [generate].negative）"
+    )
+    make_parser.add_argument("--steps", type=int, default=None, help="步数")
+    make_parser.add_argument(
+        "--cfg", type=float, default=None, help="引导强度（越大越贴提示词）"
+    )
+    make_parser.add_argument("--width", type=int, default=None, help="画布宽")
+    make_parser.add_argument("--height", type=int, default=None, help="画布高")
+    make_parser.add_argument(
+        "--workflow",
+        default=None,
+        help="换模板（workflows/ 下的文件名，默认取 [workflows].default）",
+    )
+
     subparsers.add_parser("stub", help="起一个假引擎（无显卡也能端到端调试）")
 
     args = parser.parse_args(argv)
@@ -233,6 +382,9 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
         return _run_assets(
             config, args.assets_action, getattr(args, "verify_readonly", False)
         )
+
+    if args.command == "make":
+        return _run_make(config, args)
 
     if args.command == "stub":
         return _run_stub(config)

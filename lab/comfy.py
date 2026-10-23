@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -127,12 +128,22 @@ class EngineClient:
             raise EngineError(f"引擎收下了任务却没给 prompt_id：{_snippet(body)}")
         return str(data["prompt_id"])
 
-    def wait(self, prompt_id: str) -> JobResult:
-        """轮询到任务完成。轮询次数用尽还没完就抛 EngineTimeout。"""
-        for _ in range(self.max_polls):
+    def wait(
+        self, prompt_id: str, on_poll: Callable[[int, float], None] | None = None
+    ) -> JobResult:
+        """轮询到任务完成。轮询次数用尽还没完就抛 EngineTimeout。
+
+        `on_poll(polls, elapsed)` 每次查完没完成都会被叫一次 —— 上层拿它报进度。
+        轮询能说的只有"还在等、等了多久"，绝不是"第几步"：步数只有 WebSocket
+        的 progress 消息才有，轮询拿不到就别假装拿得到。
+        """
+        started = time.monotonic()
+        for polls in range(1, self.max_polls + 1):
             entry = self._history(prompt_id)
             if entry is not None:
                 return _result(prompt_id, entry)
+            if on_poll is not None:
+                on_poll(polls, time.monotonic() - started)
             time.sleep(self.poll_interval)
         waited = self.max_polls * self.poll_interval
         raise EngineTimeout(
@@ -153,9 +164,14 @@ class EngineClient:
         target.write_bytes(body)
         return target
 
-    def generate(self, prompt: dict, dest_dir: Path) -> JobResult:
+    def generate(
+        self,
+        prompt: dict,
+        dest_dir: Path,
+        on_poll: Callable[[int, float], None] | None = None,
+    ) -> JobResult:
         """提交 → 轮询 → 取回，一次走完。"""
-        result = self.wait(self.submit(prompt))
+        result = self.wait(self.submit(prompt), on_poll=on_poll)
         files = tuple(self.fetch(image, dest_dir) for image in result.images)
         return replace(result, files=files)
 
@@ -221,15 +237,15 @@ def _result(prompt_id: str, entry: dict) -> JobResult:
             )
     if not images:
         raise EngineJobFailed(f"任务 {prompt_id} 报完成了，却没产出任何图片。")
-    return JobResult(
-        prompt_id=prompt_id, images=tuple(images), files=(), history=entry
-    )
+    return JobResult(prompt_id=prompt_id, images=tuple(images), files=(), history=entry)
 
 
 def _http_error(code: int, body: bytes) -> EngineError:
     detail = _decode(body)
-    if code == 400 and isinstance(detail, dict) and (
-        "node_errors" in detail or "error" in detail
+    if (
+        code == 400
+        and isinstance(detail, dict)
+        and ("node_errors" in detail or "error" in detail)
     ):
         return EngineRejected(_rejection_message(detail))
     return EngineError(f"引擎返回 {code}：{_snippet(body)}")

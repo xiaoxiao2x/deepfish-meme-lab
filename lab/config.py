@@ -13,7 +13,13 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["Config", "ConfigError", "load_config"]
+__all__ = [
+    "Config",
+    "ConfigError",
+    "GenerateConfig",
+    "WorkflowsConfig",
+    "load_config",
+]
 
 
 class ConfigError(Exception):
@@ -53,10 +59,38 @@ class PathsConfig:
 
 
 @dataclass(frozen=True)
+class GenerateConfig:
+    """出片的默认业务参数 —— 命令行没给时用它。
+
+    这些是"业务参数"（张数、步数、引导强度、画布），不是节点参数：
+    它们由 workflows.py 按标题翻译进模板，CLI 只认这一层。
+    """
+
+    count: int
+    steps: int
+    cfg: float
+    width: int
+    height: int
+    denoise: float
+    prompt_prefix: str
+    negative: str
+
+
+@dataclass(frozen=True)
+class WorkflowsConfig:
+    """模板文件名，相对 workflows/。"""
+
+    default: str  # 文生图
+    img2img: str  # 底图复用；#8 之前可能还没有这个文件，所以允许为空
+
+
+@dataclass(frozen=True)
 class Config:
     repo_root: Path
     comfy: ComfyConfig
     paths: PathsConfig
+    generate: GenerateConfig
+    workflows: WorkflowsConfig
 
 
 def _read_toml(path: Path) -> dict:
@@ -117,7 +151,9 @@ def load_config(repo_root: Path | str) -> Config:
         root=_resolve(root, root_value) if root_value else None,
         required_nodes=tuple(comfy_raw.get("required_nodes") or ()),
         weights=tuple(
-            WeightSpec(file=w["file"], size_gb=float(w["size_gb"]), note=w.get("note", ""))
+            WeightSpec(
+                file=w["file"], size_gb=float(w["size_gb"]), note=w.get("note", "")
+            )
             for w in (comfy_raw.get("weights") or ())
         ),
     )
@@ -130,4 +166,27 @@ def load_config(repo_root: Path | str) -> Config:
         asset_index=_resolve(root, _require(data, "paths.asset_index")),
     )
 
-    return Config(repo_root=root, comfy=comfy, paths=paths)
+    generate = GenerateConfig(
+        count=int(_require(data, "generate.count")),
+        steps=int(_require(data, "generate.steps")),
+        cfg=float(_require(data, "generate.cfg")),
+        width=int(_require(data, "generate.width")),
+        height=int(_require(data, "generate.height")),
+        denoise=float(_require(data, "generate.denoise")),
+        prompt_prefix=str((data.get("generate") or {}).get("prompt_prefix") or ""),
+        negative=str((data.get("generate") or {}).get("negative") or ""),
+    )
+
+    workflows_raw = data.get("workflows") or {}
+    workflows = WorkflowsConfig(
+        default=str(_require(data, "workflows.default")),
+        img2img=str(workflows_raw.get("img2img") or ""),
+    )
+
+    return Config(
+        repo_root=root,
+        comfy=comfy,
+        paths=paths,
+        generate=generate,
+        workflows=workflows,
+    )

@@ -16,8 +16,18 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO_ROOT / "workflows").glob("*.json"))
 
-# 票 #4 约定的标题集合。标题写错一个字，注入就会静默失效，所以钉死。
-REQUIRED_TITLES = {"提示词", "负面词", "采样器", "种子", "步数", "输出"}
+# 票 #4 约定的标题集合，票 #7 补上「尺寸」与「引导强度」（后者的 cfg 原先挂在
+# CFGGuider 上但没有标题，注入没法定位）。标题写错一个字注入就会静默失效，所以钉死。
+REQUIRED_TITLES = {
+    "提示词",
+    "负面词",
+    "采样器",
+    "种子",
+    "步数",
+    "尺寸",
+    "引导强度",
+    "输出",
+}
 
 SAVING_NODES = {"SaveImage", "PreviewImage"}
 
