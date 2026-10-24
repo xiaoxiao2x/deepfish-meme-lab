@@ -1,0 +1,43 @@
+# 门禁在推上去的时候也得跑一遍。
+#
+# 本地靠 scripts/git-hooks/pre-commit 守着，但那玩意儿每个克隆要手动装一次
+# （git config core.hooksPath scripts/git-hooks），漏装就等于没有门禁。这里补上
+# 「谁都逃不掉」的那一遍：克隆下来、换个系统、或者说自己忘了装钩子，都一样。
+#
+# 跑的就是本地那一条 ./scripts/check.sh —— 同一份规则、同一串命令。CI 与本地
+# 用两套命令是最坏的一种省事：本地绿了推上去红，人就开始不信门禁了。
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # 3.11 是 requires-python 的下界：门禁在下界上过，才算「3.11+ 都能跑」。
+          # 本地 .venv 可以更新（这台是 3.14），但 CI 锚在最老支持的那一版。
+          python-version: "3.11"
+
+      - name: 装依赖
+        run: |
+          python -m pip install --upgrade pip
+          # 工具版本钉住：门禁的规则集写在 pyproject.toml 里，但规则**默认值**
+          # 随版本漂 —— 不钉版本，升级一次 ruff 就可能换一套标准。
+          # 这几个数抄自 README「本次验证的版本」，改的时候两处一起改。
+          python -m pip install \
+            "Pillow>=12" \
+            pytest==9.1.1 \
+            ruff==0.17.1 \
+            mypy==2.4.0
+
+      - name: 门禁（pytest + ruff + mypy + docs）
+        run: ./scripts/check.sh

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .comfy import EngineClient, EngineError
 from .config import Config
-from .naming import folder_for, plan_output
+from .naming import entry_id, folder_for, plan_output
 from .paths import check_still_image
 from .pipeline import move_out, one_image, upload_name
 from .recording import engine_version, entry_from_base, find_base, used_serials
@@ -48,7 +48,7 @@ class MadeSticker:
 
     @property
     def id(self) -> str:
-        return f"fish-{self.serial:03d}"
+        return entry_id(self.serial)
 
 
 def _check_alpha(path: Path) -> None:

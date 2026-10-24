@@ -427,3 +427,57 @@ def test_cli_gallery_of_an_empty_library_sends_you_to_keep(tmp_path, capsys):
     assert "还没留东西" in out
     assert "lab keep" in out, "空库不是死路：得告诉人下一步是哪条命令"
 
+
+def test_cli_takes_repo_root_before_or_after_the_subcommand(tmp_path, capsys):
+    """两个位置都得认：`lab --repo-root X gallery` 与 `lab gallery --repo-root X`。
+
+    参数摆哪儿是肌肉记忆的事，让人记「只能在子命令后面」是白添一道坎。
+    """
+    from lab.cli import main
+
+    root = _twin_repo(tmp_path)
+
+    assert main(["--repo-root", str(root), "gallery"]) == 0
+    assert "还没留东西" in capsys.readouterr().out
+
+    assert main(["gallery", "--repo-root", str(root)]) == 0
+    assert "还没留东西" in capsys.readouterr().out
+
+
+def test_cli_takes_repo_root_from_the_environment(tmp_path, capsys, monkeypatch):
+    """子进程里（脚本、验收）用环境变量比拼命令行省事。"""
+    from lab.cli import main
+
+    root = _twin_repo(tmp_path)
+    monkeypatch.setenv("LAB_REPO_ROOT", str(root))
+
+    assert main(["gallery"]) == 0
+    assert "还没留东西" in capsys.readouterr().out
+
+
+def test_cli_repo_root_beats_the_environment(tmp_path, capsys, monkeypatch):
+    """两处都指了的时候听命令行的 —— 否则没法在一次会话里临时切仓库。"""
+    from lab.cli import main
+
+    root = _twin_repo(tmp_path)
+    monkeypatch.setenv("LAB_REPO_ROOT", str(tmp_path / "nope"))
+
+    assert main(["gallery", "--repo-root", str(root)]) == 0
+    assert "还没留东西" in capsys.readouterr().out
+
+
+def test_cli_keeps_the_picture_in_the_repo_it_was_pointed_at(tmp_path, capsys):
+    """指了哪个仓库就往哪个仓库写 —— 验临时仓库时不许碰真仓库。"""
+    from lab.cli import main
+    from lab.registry import library_path, load_entries
+
+    root = _twin_repo(tmp_path)
+    cfg = load_config(root)
+    image = picture(cfg.paths.output_dir / date.today().isoformat())
+
+    assert main(["keep", str(image), "--repo-root", str(root)]) == 0
+    capsys.readouterr()
+
+    kept = load_entries(library_path(root))
+    assert [one.id for one in kept] == ["fish-001"]
+

@@ -72,7 +72,8 @@ class EntrySource:
         )
 
 
-#: 少了一个就答不出"这张图怎么来的"的那几个键。其余字段缺了按默认值走。
+#: 少了一个就没法把这条对回一张图的那几个键。其余字段缺了按默认值走 ——
+#: imported 那种来历不明的图，seed 是 0、model 是空串，本来就是合法的一条。
 _REQUIRED_KEYS = ("id", "createdAt", "kind", "file", "width", "height")
 
 

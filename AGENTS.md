@@ -17,6 +17,8 @@
 
 要出图得先有引擎，工作台不管它的生命周期（ADR-0004）：`./scripts/comfy.sh start|stop|status|log`。
 
+门禁守得住静态检查与「文档与代码对不上」，守不住品味。**改代码、跑 `/code-review` 之前先读 [CODING_STANDARDS.md](CODING_STANDARDS.md)** —— 里面是已经定过的写法（号只有一个来源、借参数只认 orig、表格宽度只有一个来源……）和**明知不改的那几条**（Primitive Obsession、Data Clumps、`"未知"` 三处），再看到不必重新论证。
+
 ## Agent skills
 
 ### Issue tracker

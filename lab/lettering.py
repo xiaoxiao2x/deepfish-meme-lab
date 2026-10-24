@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from .config import Config, ConfigError
-from .naming import folder_for, plan_output, stage_of
+from .naming import entry_id, folder_for, plan_output, stage_of
 from .paths import check_still_image
 from .recording import entry_from_base, find_base, used_serials
 from .registry import RECORD_NAME, load_entries, write_entry
@@ -145,7 +145,7 @@ class MadeLettering:
 
     @property
     def id(self) -> str:
-        return f"fish-{self.serial:03d}"
+        return entry_id(self.serial)
 
     @property
     def text(self) -> str:

@@ -23,7 +23,7 @@ from typing import Protocol, runtime_checkable
 
 from .comfy import EngineClient, GeneratedImage
 from .config import Config
-from .naming import daily_dir, next_serial, output_name
+from .naming import daily_dir, entry_id, next_serial, output_name
 from .paths import check_image_file
 from .recording import (
     IMAGE_KIND,
@@ -106,7 +106,7 @@ class MadeImage:
 
     @property
     def id(self) -> str:
-        return f"fish-{self.serial:03d}"
+        return entry_id(self.serial)
 
 
 def random_seed() -> int:

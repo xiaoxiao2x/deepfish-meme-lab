@@ -11,6 +11,10 @@
     python -m lab gallery         列出配方库里留了什么
     python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
+任何子命令都能加 `--repo-root <目录>`（或设环境变量 `LAB_REPO_ROOT`）把工作台钉在
+另一个仓库上：配置、output/、data/ 全按那里算。默认锚在**模块文件所在的那个仓库**
+（不是当前目录）—— 所以要验一遍临时仓库，不指明的话出的图会照样写进真仓库。
+
 退出码：0 = 全绿能干活；1 = 有 FAIL、有没查成的项、或有问题要处理；2 = 命令本身
 用错了（参数不对、配置读不出来）。WARN 不算通过 —— 「没配所以没查」和「查了没
 问题」是两回事，混在一起会在接线之前就把问题咽掉。
@@ -22,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import unicodedata
 from pathlib import Path
@@ -37,6 +42,21 @@ if TYPE_CHECKING:
 __all__ = ["main"]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: 不写 `--repo-root` 时看这个环境变量。子进程里（测试、脚本）比命令行参数省事，
+#: 也让"临时仓库"这件事在所有子命令上一致地生效。
+REPO_ROOT_ENV = "LAB_REPO_ROOT"
+
+#: 每个子命令都认的 `--repo-root`。
+#: 用 `default=SUPPRESS`：不给就压根不设这个属性，于是子命令解析不会把顶层已经
+#: 解析到的值抹成 None —— 否则 `lab --repo-root X gallery` 会被子命令的默认值盖掉。
+_REPO_ROOT_OPTION = argparse.ArgumentParser(add_help=False)
+_REPO_ROOT_OPTION.add_argument(
+    "--repo-root",
+    default=argparse.SUPPRESS,
+    metavar="目录",
+    help="把工作台钉在这个仓库上（配置、output/、data/ 都按它算）；不给就看环境变量 LAB_REPO_ROOT",
+)
 
 BADGE = {Status.OK: "[ OK ]", Status.WARN: "[WARN]", Status.FAIL: "[FAIL]"}
 RULE_WIDTH = 60  # 报告横线的默认宽度；表格比这宽时按表宽画
@@ -548,26 +568,47 @@ def _run_stub(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """搭出整棵命令树。
+
+    单独一个函数只为一件事：让测试能遍历它。`--repo-root` 得挂在**每个**子命令上
+    （`lab make --repo-root X` 与 `lab --repo-root X make` 是两种肌肉记忆），漏挂一个
+    就有一半写法失效 —— 而这种漏是靠人记不住的，靠遍历断言才守得住。
+    """
     parser = argparse.ArgumentParser(
         prog="lab",
         description="鱼片加工厂 · 本地出片工作台（推理交给本机 ComfyUI）",
+        parents=[_REPO_ROOT_OPTION],
     )
     subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser("doctor", help="检查环境：引擎、权重、节点、素材、输出目录")
+    # parents=[_REPO_ROOT_OPTION] 挂在每个子命令上：`lab --repo-root X make` 与
+    # `lab make --repo-root X` 都得能用，写命令的时候不该还要记参数摆哪儿。
+    subparsers.add_parser(
+        "doctor",
+        parents=[_REPO_ROOT_OPTION],
+        help="检查环境：引擎、权重、节点、素材、输出目录",
+    )
 
-    assets_parser = subparsers.add_parser("assets", help="素材索引与去重（只读引用）")
+    assets_parser = subparsers.add_parser(
+        "assets", parents=[_REPO_ROOT_OPTION], help="素材索引与去重（只读引用）"
+    )
     assets_sub = assets_parser.add_subparsers(dest="assets_action")
-    scan_parser = assets_sub.add_parser("scan", help="扫描素材根目录，写索引并报告")
+    scan_parser = assets_sub.add_parser(
+        "scan", parents=[_REPO_ROOT_OPTION], help="扫描素材根目录，写索引并报告"
+    )
     scan_parser.add_argument(
         "--verify-readonly",
         action="store_true",
         help="扫描前后核对素材 mtime/size，证明没动过它们（I/O 翻倍）",
     )
-    assets_sub.add_parser("dupes", help="按已有索引列出重复组")
+    assets_sub.add_parser(
+        "dupes", parents=[_REPO_ROOT_OPTION], help="按已有索引列出重复组"
+    )
 
     make_parser = subparsers.add_parser(
-        "make", help="给一句话，出一批图（写到 output/YYYY-MM-DD/）"
+        "make",
+        parents=[_REPO_ROOT_OPTION],
+        help="给一句话，出一批图（写到 output/YYYY-MM-DD/）",
     )
     make_parser.add_argument(
         "--prompt", "-p", required=True, help="画什么。中文英文都行"
@@ -614,6 +655,7 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     sticker_parser = subparsers.add_parser(
         "sticker",
+        parents=[_REPO_ROOT_OPTION],
         help="把一张图去背成透明底贴纸（贴着原图落；外来的图落到 output/YYYY-MM-DD/）",
     )
     sticker_parser.add_argument(
@@ -623,6 +665,7 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
     # glossary-ok: caption 是 docs/roadmap.md:165 定死的对外子命令名，改不了
     lettering_parser = subparsers.add_parser(
         "caption",  # glossary-ok: 子命令名，docs/roadmap.md:165 定死的对外接口
+        parents=[_REPO_ROOT_OPTION],
         help="给一张贴纸印一句台词（同目录同序号落成 .captioned.png；不需要引擎）",
     )
     lettering_parser.add_argument(
@@ -637,6 +680,7 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     keep_parser = subparsers.add_parser(
         "keep",
+        parents=[_REPO_ROOT_OPTION],
         help="把这张定稿搬进配方库（从当天的全量记录里抄参数，进 git 的那本就是它）",
     )
     keep_parser.add_argument(
@@ -644,11 +688,13 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
     )
 
     subparsers.add_parser(
-        "gallery", help="列出配方库里留了什么（号 / 阶段 / 模型 / 种子 / 时间）"
+        "gallery",
+        parents=[_REPO_ROOT_OPTION],
+        help="列出配方库里留了什么（号 / 阶段 / 模型 / 种子 / 时间）",
     )
 
     stub_parser = subparsers.add_parser(
-        "stub", help="起一个假引擎（无显卡也能端到端调试）"
+        "stub", parents=[_REPO_ROOT_OPTION], help="起一个假引擎（无显卡也能端到端调试）"
     )
     stub_parser.add_argument(
         "--rgba",
@@ -656,6 +702,11 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
         help="回的图带透明通道 —— 调 lab sticker 时用它，不透明的图证明不了去背",
     )
 
+    return parser
+
+
+def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -663,8 +714,14 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
         print("\n先用 `python -m lab doctor` 看看环境齐不齐。")
         return 2
 
+    # 钉在哪个仓库上：命令行 > 函数入参（测试与脚本用）> 环境变量 > 模块所在仓库。
+    # 最后那个兜底锚的是**模块文件的位置**，不是当前目录 —— 所以 `cd` 到别处跑
+    # `python -m lab make` 照样写进真仓库，想验临时仓库就得明说。
+    chosen = (
+        getattr(args, "repo_root", None) or repo_root or os.environ.get(REPO_ROOT_ENV)
+    )
     try:
-        config = load_config(repo_root or REPO_ROOT)
+        config = load_config(chosen or REPO_ROOT)
     except ConfigError as exc:
         print(f"配置读不出来：{exc}", file=sys.stderr)
         return 2
