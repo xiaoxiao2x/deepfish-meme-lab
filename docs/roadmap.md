@@ -135,7 +135,7 @@ python -m lab doctor
 # 全绿
 
 python -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
-# → output/2026-10-22/ 下出现 4 张 PNG，终端打印各自路径与 seed
+# → output/<日期>/ 下出现 4 张 PNG，终端打印各自路径与 seed
 ```
 
 **已达成（2026-10-23，见 #7）**：`--count 4` 在 base 4B / 20 步下 92 秒出 4 张，命名 `fish-001.orig.png`…；同 seed 同参数两次跑出**字节相同**的图；把模板节点 ID 全部重排后参数仍准确落到对应节点（从引擎 `/history` 回读执行图核对）。「第 N 步」的实时进度拿不到——那需要订阅 `/ws` 的 `progress` 消息，当前只报已等秒数。
@@ -236,13 +236,20 @@ python -m lab reproduce fish-001     # 用配方重跑，验证可复现性
 
 > 一条命令/一个页面，输入一句台词或一张底图 → ① 原图（1024 级）② 透明底贴纸 PNG ③ 带台词成图。
 
-可执行版：
+可执行版（今天得走三段；上句那"一条"要等 M5 的出片台把它串起来，命令行里没有 `--caption`）：
 
 ```bash
-python -m lab make --caption "你好呀" --count 4
-python -m lab sticker output/2026-10-22/fish-001.png
-python -m lab caption output/2026-10-22/fish-001.sticker.png --text "你好呀"
+python -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
+# → output/<日期>/fish-001.orig.png … fish-004.orig.png
+
+python -m lab sticker output/<日期>/fish-001.orig.png
+# → 同目录 fish-001.sticker.png
+
+python -m lab caption output/<日期>/fish-001.sticker.png --text "你好呀"
+# → 同目录 fish-001.captioned.png
 ```
+
+`<日期>` 是出片那天（`output/` 下最新那个），别照抄文档里的日期。
 
 全部通过条件：
 

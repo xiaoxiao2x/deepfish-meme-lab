@@ -19,15 +19,15 @@ python3 -m lab doctor        # 体检：引擎、权重、节点、模板契约�
 python3 -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
                             # 出一批图，落到 output/<日期>/，打印路径与 seed
 python3 -m lab make --prompt "同一只鲸鱼娘，换个表情" \
-    --init-image output/2026-10-23/fish-001.orig.png --denoise 0.55
+    --init-image output/<日期>/fish-001.orig.png --denoise 0.55
                             # 底图复用：拿一张旧图当底，把形象钉住（0.55 是起点）
-python3 -m lab sticker output/2026-10-23/fish-001.orig.png
+python3 -m lab sticker output/<日期>/fish-001.orig.png
                             # 去背：出一张透明底贴纸，落在原图旁边（同名同序号）
                             # 别的图也行；用哪只去背模型写在模板的 model 字段里
-python3 -m lab caption output/2026-10-23/fish-001.sticker.png --text "你好呀"
+python3 -m lab caption output/<日期>/fish-001.sticker.png --text "你好呀"
                             # 加字：带白描边的带字成图，落在贴纸旁边（同名同序号）
                             # 台词长了会自动折行；字体与字号在 config 的 [postprocess] 里
-python3 -m lab keep output/2026-10-23/fish-001.captioned.png
+python3 -m lab keep output/<日期>/fish-001.captioned.png
                             # 保留：挑中的那张从当天的账里连参数一起搬进配方库（进 git 的那本）
                             # 原图 / 贴纸 / 带字成图都能留；账里没有来路就只收图、参数留空
 python3 -m lab gallery      # 配方库里留了什么：号 / 阶段 / 模型 / 种子 / 时间
@@ -74,6 +74,46 @@ python3 -m venv .venv
 ./scripts/comfy.sh log      # 看日志
 ./scripts/comfy.sh stop
 ```
+
+## 一份临时仓库
+
+验边界、试新配置、跑一次不想留在真仓库里的实验时，别在真仓库上动手：`--repo-root 目录`（或环境变量 `LAB_REPO_ROOT`）把工作台整个钉在另一个目录上 —— 配置、`output/`、`data/` 都按它算，真仓库一个字节不动。
+
+最少两样就能出片：
+
+```bash
+SCRATCH=/tmp/lab-scratch
+mkdir -p "$SCRATCH/config"
+cp config/default.toml "$SCRATCH/config/"
+cp -r workflows "$SCRATCH/workflows"
+```
+
+`data/` 与 `output/` 不用预先建 —— 第一次 `lab keep` 会写出 `registry.json`，出片时按当天日期建目录。
+
+缺什么当场说，不崩在深处：
+
+```text
+配置读不出来：找不到 default.toml（应在 <临时仓库>/config/default.toml）
+工作流模板有问题：找不到工作流模板：<临时仓库>/workflows/fish-txt2img.json
+```
+
+先看一眼：`python3 -m lab doctor --repo-root "$SCRATCH"` —— 配置里没指 `comfy.root` 与 `asset_roots` 时那两项报 WARN，其余照查（引擎连通性、模板契约、输出目录）。
+
+要和真仓库的引擎同时跑（不抢 8188），在临时仓库里覆盖端口就行 —— `config/local.toml` 深合并进 `default.toml`，只盖点名的键：
+
+```bash
+printf '[comfy]\nport = 8288\n' > "$SCRATCH/config/local.toml"
+```
+
+没有显卡、或只想把链路走通：`python3 -m lab stub --repo-root "$SCRATCH"` 起个假引擎（它听的也是这个仓库配的 `comfy.port`）：
+
+```bash
+python3 -m lab stub --repo-root "$SCRATCH" &
+python3 -m lab make -p "chibi blue whale girl, sticker style" -n 2 --repo-root "$SCRATCH"
+# → $SCRATCH/output/<日期>/fish-001.orig.png、fish-002.orig.png + registry.local.json
+```
+
+假引擎回的图只有 64×64、默认不透明：要走 `lab sticker` 就加 `--rgba`（不透明的图证明不了去背，那一步会当场拒收）；`lab caption` 在 64×64 上会如实报「画布太窄」——它验的是链路通不通，不是出片好看不好看。
 
 ## 文档
 
