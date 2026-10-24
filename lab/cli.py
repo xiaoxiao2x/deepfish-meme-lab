@@ -496,7 +496,8 @@ def _print_gallery(entries: list[Entry]) -> None:
         _wrap(
             f"{len(entries)} 条，库里就是这些。"
             "时间一栏是这一条落账的时刻：工作台出的图记生成那一刻，"
-            "外来的图记搬进库那一刻。按配方重跑还没做（见 #12）。",
+            "外来的图记搬进库那一刻。要照某一条重跑："
+            "python -m lab reproduce <号>。",
             width,
         ),
         width=width,
@@ -543,6 +544,39 @@ def _run_gallery(config: Config, args: argparse.Namespace) -> int:
     _print_gallery(entries)
     return 0
 
+
+def _run_reproduce(config: Config, args: argparse.Namespace) -> int:
+    """`lab reproduce` —— 照配方库里的那条再跑一次，看还能不能出回原来那张（票 #12）。"""
+    from .comfy import EngineError
+    from .reproduce import reproduce
+    from .workflows import WorkflowError
+
+    try:
+        report = reproduce(config, args.id, progress=_MakeProgress())
+    except WorkflowError as exc:
+        print(f"工作流模板有问题：{exc}", file=sys.stderr)
+        return 1
+    except EngineError as exc:
+        print(f"引擎没干成：{exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    print()
+    print(f"重跑完成，在 {report.image.path.parent}")
+    print(f"  原配方 {report.recipe.id}  →  {report.image.id}")
+    print(f"  seed={report.image.spec.seed}  {report.image.path.name}")
+    if report.same is True:
+        print("  与原来那张逐像素一致。")
+    elif report.same is False:
+        print("  与原来那张不一样。")
+        print("  两张都留着，比一比差在哪儿 —— 换过模板、换过模型、换过引擎版本都会这样。")
+    else:
+        print("  没有原图可比 —— 这次只验了它还能跑出片。")
+    if report.note:
+        print(f"  {report.note}")
+    return 0
 
 def _run_stub(config: Config, args: argparse.Namespace) -> int:
     """起假引擎。没有显卡、权重还没下完的时候，靠它把工作台这一段走通。"""
@@ -693,6 +727,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="列出配方库里留了什么（号 / 阶段 / 模型 / 种子 / 时间）",
     )
 
+    reproduce_parser = subparsers.add_parser(
+        "reproduce",
+        parents=[_REPO_ROOT_OPTION],
+        help="照配方库里的那条重跑一次，与原图逐像素比（落到今天那个目录）",
+    )
+    reproduce_parser.add_argument(
+        "id", help="配方库里的号：python -m lab gallery 里「号」那一列"
+    )
+
     stub_parser = subparsers.add_parser(
         "stub", parents=[_REPO_ROOT_OPTION], help="起一个假引擎（无显卡也能端到端调试）"
     )
@@ -751,6 +794,9 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     if args.command == "gallery":
         return _run_gallery(config, args)
+
+    if args.command == "reproduce":
+        return _run_reproduce(config, args)
 
     if args.command == "stub":
         return _run_stub(config, args)

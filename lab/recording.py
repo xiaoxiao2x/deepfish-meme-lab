@@ -41,6 +41,7 @@ __all__ = [
     "image_size",
     "points_at",
     "repo_relative",
+    "resolve_recorded",
     "used_serials",
 ]
 
@@ -106,20 +107,28 @@ def used_serials(entries: list[Entry]) -> list[int]:
     return [parse_serial(Path(one.file)) or 0 for one in entries]
 
 
-def points_at(cfg: Config, recorded: str, image: Path) -> bool:
-    """账里记的那条是不是就是这张图。
+def resolve_recorded(cfg: Config, recorded: str) -> Path:
+    """账里那一栏路径，换算成本机上的路径。
 
     记录里的 file 通常是相对仓库根的（`output/2026-10-24/fish-001.orig.png`），
     也可能折成 `~/...`（仓库外但在家目录里），或者是画成绝对路径的旧条目 ——
     三种都得认，不然人一换工作目录就认不出这是同一张。
+
+    「认不认得出是同一张」与「那张图现在在哪儿」是同一个换算，所以只有这一份：
+    `points_at` 是它加一次比较，`reproduce` 是它加一次开图。
     """
     path = Path(recorded)
     if recorded.startswith("~"):
-        path = path.expanduser()
-    elif not path.is_absolute():
-        path = Path(cfg.repo_root) / path
+        return path.expanduser()
+    if path.is_absolute():
+        return path
+    return Path(cfg.repo_root) / path
+
+
+def points_at(cfg: Config, recorded: str, image: Path) -> bool:
+    """账里记的那条是不是就是这张图。"""
     try:
-        return path.resolve() == Path(image).resolve()
+        return resolve_recorded(cfg, recorded).resolve() == Path(image).resolve()
     except OSError:
         return False
 

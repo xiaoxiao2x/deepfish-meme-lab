@@ -10,7 +10,7 @@
 
 **实现中** —— 设计与路线已定稿；第一阶段（M1–M4）按 [票](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues) 推进。
 
-M1 环境补齐、M2 出图管线、M3 的去背与加字、M4 的两本账都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。每次落盘都顺手在当天记一笔（`output/<日期>/registry.local.json`，含废图，不进 git）；挑中的那张用 `python -m lab keep <图片>` 连种子和参数一起搬进配方库 `data/registry.json`（进 git），`python -m lab gallery` 看库里有什么。M3 还剩规格导出，M4 还剩 `reproduce`。
+M1 环境补齐、M2 出图管线、M3 的去背与加字、M4 的两本账都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。每次落盘都顺手在当天记一笔（`output/<日期>/registry.local.json`，含废图，不进 git）；挑中的那张用 `python -m lab keep <图片>` 连种子和参数一起搬进配方库 `data/registry.json`（进 git），`python -m lab gallery` 看库里有什么。`python -m lab reproduce fish-001` 拿库里那条配方再跑一次，当场比出「逐像素一致 / 不一样 / 没得比」。M3 还剩规格导出。
 
 ## 跑起来
 
@@ -31,6 +31,9 @@ python3 -m lab keep output/2026-10-23/fish-001.captioned.png
                             # 保留：挑中的那张从当天的账里连参数一起搬进配方库（进 git 的那本）
                             # 原图 / 贴纸 / 带字成图都能留；账里没有来路就只收图、参数留空
 python3 -m lab gallery      # 配方库里留了什么：号 / 阶段 / 模型 / 种子 / 时间
+python3 -m lab reproduce fish-001
+                            # 复现：照库里那条配方重跑一张（落到今天那个目录、进当天的账）
+                            # 与原图逐像素比：同引擎版本下应当一致；不一致会说差在哪儿
 python3 -m lab assets scan   # 扫描素材、写索引、报重复（只读，不动原图）
 python3 -m lab assets dupes  # 按索引列出重复组
 python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通（--rgba 时回的图带透明通道）
@@ -58,8 +61,9 @@ python3 -m venv .venv
 `git config core.hooksPath scripts/git-hooks`；某次确实想跳过：`SKIP_CHECKS=1 git commit ...`。
 检查用哪些规则写在 `pyproject.toml` 的 `[tool.ruff]` / `[tool.mypy]` 里，不靠工具默认值
 （本次验证的版本：ruff 0.17.1、mypy 2.4.0、Python 3.11+）。
-`docs` 那一条（`scripts/check_docs.py`）比两件事：`docs/design.md` §6.3 写的标题集合与
-`lab.workflows` 的常量是否一致；源码与模板里有没有用 `GLOSSARY.md` 不收的词。确实该那么写时
+`docs` 那一条（`scripts/check_docs.py`）比四件事：`docs/design.md` 写的标题集合与
+`lab.workflows` 的常量是否一致、§6.2 的 schema 键与 `Entry.as_json()` 是否一致、
+`lab/` 的每个文件在不在 §4 的架构树上、源码与模板里有没有用 `GLOSSARY.md` 不收的词。确实该那么写时
 在那一行加 `glossary-ok`，理由写在旁边。
 
 出图要引擎先跑着 —— 工作台不负责启停（[ADR-0004](docs/adr/0004-no-comfyui-lifecycle.md)）：
