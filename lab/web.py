@@ -40,12 +40,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from . import showcase
 from .comfy import EngineClient, EngineError, EngineLike
 from .config import Config
 from .jobs import Job, JobBoard
 from .naming import daily_dir
 from .paths import output_relative
 from .pipeline import spec_for
+from .recording import resolve_recorded
+from .registry import Entry
 
 __all__ = ["PAGES", "STATIC_DIR", "TEMPLATES_DIR", "Page", "create_app", "serve"]
 
@@ -61,6 +64,12 @@ STATIC_MOUNT = "/static"
 
 #: 看图的前缀：页面手里的是相对 output 的路径，拼在这儿就是一张图。
 IMAGES_MOUNT = "/images"
+
+#: 成品库的缩略图：账里那一条按（日期/号/阶段.png）现取现缩。
+THUMB_MOUNT = "/thumb"
+
+#: 当天的全量记录里那一条，原样摊成 JSON。
+RECORD_MOUNT = "/record"
 
 #: 页面调的那些接口都挂在这儿。
 API_PREFIX = "/api"
@@ -99,6 +108,61 @@ PAGES: tuple[Page, ...] = (
     Page(path="/gallery", key="gallery", title="成品库", template="gallery.html"),
     Page(path="/settings", key="settings", title="设置", template="settings.html"),
 )
+
+
+#: 出片台那条路。「用同参数重跑」从这里跳回去 —— 导航那个循环里已经有它了，
+#: 成品库只是要一个能拼查询串的地址，不必再从 PAGES 里现找一遍。
+GENERATE_PATH = next(page for page in PAGES if page.key == "generate").path
+
+
+@dataclass(frozen=True)
+class CardView:
+    """成品库页面上的一张卡片：账里那一条，加上它的图还在不在。
+
+    账里那一条（模型、种子、步数都从这儿念）与缩略图那串身份都转发给
+    showcase.Card：同一个算法只该有一份，页面上各处照抄它。图在不在是页面
+    要的分岔——在就给张缩略图，不在就写一句话，而不是让浏览器去撞一个 404。
+    """
+
+    card: showcase.Card
+    has_picture: bool
+    relative: str
+
+    @property
+    def entry(self) -> Entry:
+        """账里那一条。"""
+        return self.card.entry
+
+    @property
+    def thumb(self) -> str:
+        """缩略图与登记项共用的那串尾巴。"""
+        return self.card.thumb
+
+
+@dataclass(frozen=True)
+class GalleryGroup:
+    """成品库上的一天：日期 + 那天的卡片。"""
+
+    day: str
+    cards: tuple[CardView, ...]
+
+
+def _shown(config: Config, recorded: str) -> str:
+    """账里记的是仓库相对，页面要的是 output 相对：两种换算只在这儿做一次。"""
+    return output_relative(config.paths.output_dir, resolve_recorded(config, recorded))
+
+
+def _view(config: Config, card: showcase.Card) -> CardView:
+    """一张卡片：账里的那一条摊出来，顺手问一句图还在不在。
+
+    relative 是相对 output 的那一截 —— 页面上「打开文件夹」要的是它，账里
+    记的却是仓库相对的（换个目录克隆也读得懂），两种换算就在这儿做一次。
+    """
+    return CardView(
+        card=card,
+        has_picture=showcase.picture_path(config, card) is not None,
+        relative=_shown(config, card.entry.file),
+    )
 
 
 class WebEngine(EngineLike, Protocol):
@@ -274,6 +338,91 @@ def _open_folder(folder: Path) -> bool:
     return done.returncode == 0
 
 
+@dataclass(frozen=True)
+class Prefill:
+    """照配方回填出片台的那几栏，外加一句交代。
+
+    台词、种子、底图、重绘强度是真能填回去的；模型与步数出片台没有对应的栏
+    （它们在 config 与工作流模板里），所以只念一遍让照配方的人知道这一张当初
+    是怎么出的 —— 回填不进去的东西，说清楚比装作没有强。
+    """
+
+    prompt: str
+    seed: str
+    base: str
+    denoise: str
+    model: str
+    steps: str
+
+
+def _no_such_recipe(raw: str) -> str:
+    """账面翻不到这一条时给的那句话：说清是哪一串没找到，别把人晾在空白页上。"""
+    return f"配方库里没有 {raw} 这一条 —— 它可能没被保留，或者后来被同号的顶掉了。"
+
+
+def _prefill(config: Config, raw: str) -> tuple[Prefill | None, str]:
+    """把「用同参数重跑」那一串（日期/号/阶段.png）翻成出片台的初值。
+
+    翻不出来不抛：出片台是主页面，宁可开着让它自己出片，也不能因为链接里那
+    一串过期就打不开（判据 ③ 要的是"回到出片台"，不是"回不去"）。
+    """
+    if not raw.strip():
+        return None, ""
+    parts = Path(raw).parts
+    if len(parts) != 3:
+        return None, _no_such_recipe(raw)
+    day, ident, name = parts
+    try:
+        card = showcase.find_card(config, day, ident, Path(name).stem)
+    except ValueError:
+        return None, _no_such_recipe(raw)
+
+    entry = card.entry
+    source = entry.source
+    denoise = f"{config.generate.denoise:g}"
+    base = ""
+    if source is not None:
+        base = _shown(config, source.image)
+        denoise = f"{source.denoise:g}"
+    return (
+        Prefill(
+            prompt=entry.prompt,
+            seed=str(entry.seed),
+            base=base,
+            denoise=denoise,
+            model=entry.model,
+            steps=str(entry.steps),
+        ),
+        "",
+    )
+
+
+def _page_extra(page: Page, request: Request, config: Config) -> dict[str, Any]:
+    """成品库与出片台各自多要的那几样；另外两页用不着。
+
+    PAGES 管"有哪几页"，这里管"每一页多要什么"。加页时只在这两处各添一条。
+    """
+    if page.key == "gallery":
+        query = request.query_params.get("q", "")
+        found = showcase.search(showcase.cards(config), query)
+        return {
+            "query": query,
+            "groups": [
+                GalleryGroup(
+                    day=group.day, cards=tuple(_view(config, it) for it in group.cards)
+                )
+                for group in showcase.groups(found)
+            ],
+            "thumb_mount": THUMB_MOUNT,
+            "record_mount": RECORD_MOUNT,
+            "generate_path": GENERATE_PATH,
+        }
+    if page.key == "generate":
+        fill, error = _prefill(config, request.query_params.get("from", ""))
+        return {"fill": fill, "fill_error": error}
+    return {}
+
+
 def _page_handler(
     page: Page, templates: Jinja2Templates, config: Config
 ) -> Callable[[Request], HTMLResponse]:
@@ -295,6 +444,8 @@ def _page_handler(
                 "images_mount": IMAGES_MOUNT,
                 "api": API_PREFIX,
                 "default_count": config.generate.count,
+                "default_denoise": f"{config.generate.denoise:g}",
+                **_page_extra(page, request, config),
             },
         )
 
@@ -340,6 +491,40 @@ def create_app(
         except ValueError:
             return Response(status_code=404)
         return FileResponse(path)
+
+    @app.get(f"{THUMB_MOUNT}/{{day}}/{{ident}}/{{name}}", name="thumb")
+    def thumb(day: str, ident: str, name: str) -> Any:
+        """成品库那张卡片的小图：按（日期/号/阶段.png）回账里找，现取现缩。
+
+        账里没有、或者图被清走了，都是 404 —— 这一页自己不存图，缩不出来就是
+        没有。判据要的正是这个：配方还在、图不在了，页面照旧摊得开。
+        """
+        try:
+            card = showcase.find_card(config, day, ident, Path(name).stem)
+        except ValueError:
+            return Response(status_code=404)
+        path = showcase.picture_path(config, card)
+        if path is None:
+            return Response(status_code=404)
+        try:
+            raw = showcase.thumb_bytes(path)
+        except ValueError:
+            return Response(status_code=404)
+        return Response(content=raw, media_type="image/png")
+
+    @app.get(f"{RECORD_MOUNT}/{{day}}/{{ident}}/{{name}}", name="record")
+    def record(day: str, ident: str, name: str) -> Any:
+        """「查看登记项」：当天那本全量记录里这一条，原样摊成 JSON。
+
+        两本账不是同一本，缺哪一半就说哪一半 —— 配方库那一半还在时，这里
+        报的是"当天的记录里没有它"，而不是含混的一句找不到。
+        """
+        try:
+            card = showcase.find_card(config, day, ident, Path(name).stem)
+            body = showcase.record_of(config, card)
+        except ValueError as exc:
+            return JSONResponse({"message": str(exc)}, status_code=404)
+        return JSONResponse(body)
 
     @app.get(f"{API_PREFIX}/engine", name="engine-state")
     def engine_state() -> dict[str, Any]:

@@ -2,7 +2,49 @@
 {% block content %}
 <section class="panel">
   <h2>{{ page.title }}</h2>
-  <p>配方库里每条配方按日期分组列出：缩略图、模型、种子、步数。</p>
+  <p>配方库里每条配方按日期分组列出：缩略图、模型、种子、步数。挑中哪一条，就用它自己的参数再出一张。</p>
+  <form class="search" id="search" method="get" action="{{ page.path }}">
+    <input type="search" name="q" value="{{ query }}" placeholder="台词、模型、种子、号 —— 都算命中" aria-label="搜索配方">
+    <button type="submit">搜一下</button>
+    {% if query %}<a class="link" href="{{ page.path }}">不过滤了</a>{% endif %}
+  </form>
 </section>
-<section class="placeholder">列表与「用同参数重跑」（M5.3）</section>
+
+{% if not groups %}
+<section class="placeholder">
+  {% if query %}这一条都搜不到 —— 换个词，或者{% endif %}<a href="{{ page.path }}">把搜索框清空</a>看全部{% if not query %}：配方库还一条都没留，先去出片台挑一张保留{% endif %}。
+</section>
+{% endif %}
+
+{% for group in groups %}
+<section class="day" data-day="{{ group.day }}">
+  <h3>{{ group.day }}</h3>
+  <div class="grid">
+    {% for card in group.cards %}
+    <div class="card" data-file="{{ card.relative }}">
+      {% if card.has_picture %}
+      <img class="thumb" loading="lazy" alt="{{ card.entry.id }}" src="{{ thumb_mount }}/{{ card.thumb }}">
+      {% else %}
+      <p class="missing">这张图不在原处了 —— 把它挪回来缩略图就回来，重跑不受影响。</p>
+      {% endif %}
+      <p class="line"><strong>{{ card.entry.id }}</strong>{% if card.entry.workflow %} · 种子 {{ card.entry.seed }}{% endif %}</p>
+      <p class="recipe">{% if card.entry.model %}{{ card.entry.model }} · {{ card.entry.steps }} 步 · 引导 {{ card.entry.cfg }}{% else %}外来的图 · 没有生成配方{% endif %}</p>
+      <div class="acts">
+        {% if card.entry.workflow %}
+        <a class="link" href="{{ generate_path }}?from={{ card.thumb }}">用同参数重跑</a>
+        {% else %}
+        <span class="muted">外来的图 · 没有配方可重跑</span>
+        {% endif %}
+        <button type="button" data-act="open-folder"{% if not card.has_picture %} disabled{% endif %}>打开文件夹</button>
+        <a class="link" href="{{ record_mount }}/{{ card.thumb }}" target="_blank" rel="noopener">查看登记项</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+<p class="progress" id="gallery-status" aria-live="polite"></p>
+<script src="{{ url_for('static', path='api.js') }}" defer></script>
+<script src="{{ url_for('static', path='gallery.js') }}" defer></script>
 {% endblock %}

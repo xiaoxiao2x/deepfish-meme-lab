@@ -126,7 +126,8 @@ dd { margin: 0 0 6px 5em; font-family: ui-monospace, SFMono-Regular, Menlo, mono
 
 .knobs textarea,
 .knobs input,
-.knobs select {
+.knobs select,
+.search input[type="search"] {
   font: inherit;
   color: var(--ink);
   padding: 6px 8px;
@@ -259,4 +260,58 @@ button.link {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ---------- 成品库（M5.3）：搜索、按日期分组、每条一张卡片 ---------- */
+
+.search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.search input[type="search"] {
+  flex: 1;
+}
+
+.day {
+  margin-bottom: 24px;
+}
+
+.day h3 {
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+/* 摘要与动作分两行：缩略图、号与种子、模型与步数、三个动作。 */
+.card .recipe {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.card .acts a.link {
+  font-size: 0.85rem;
+  align-self: center;
+}
+
+.card .missing {
+  margin: 0 0 8px;
+  padding: 24px 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+}
+
+.card .acts button[disabled] {
+  color: var(--muted);
+  cursor: default;
 }

@@ -51,6 +51,12 @@ select = [
 
 [tool.mypy]
 python_version = "3.11"
+# 测试之间互相 import（`from tests.test_web_api import _serving`）时，同一个文件
+# 会被认成两个模块名（`test_web_api` 与 `tests.test_web_api`），mypy 直接罢工
+# ——「errors prevented further checking」等于一个文件都没查。这两行把它钉成包路径：
+# 仓库根就是包基，tests/ 不需要 __init__.py（那是 pytest 的事，不是类型检查的事）。
+mypy_path = "."
+explicit_package_bases = true
 # tests 也一起查：假引擎是手写的替身，签名漂了只有类型检查拦得住
 # （测试运行时靠 duck typing 蒙过去，崩是崩不了，但替身会悄悄和真 EngineClient
 # 分家）。check.sh 不再硬写目录，统一读这里的 files。

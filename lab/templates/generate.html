@@ -12,8 +12,12 @@
 
   <div class="bench">
     <form class="knobs" id="knobs">
+      {% if fill_error %}<p class="progress bad" id="fill-error">{{ fill_error }}</p>{% endif %}
+      {% if fill %}
+      <p class="muted" id="fill-recipe">照配方填好了：{{ fill.model or "这条没记模型" }} · {{ fill.steps }} 步 —— 模型与步数不在下面这几栏里，换个模型去配置里改，出片时照旧按配置走。</p>
+      {% endif %}
       <label>台词
-        <textarea name="prompt" rows="3" placeholder="摸鱼中，勿扰"></textarea>
+        <textarea name="prompt" rows="3" placeholder="摸鱼中，勿扰">{{ fill.prompt if fill else "" }}</textarea>
       </label>
       <label>张数
         <select name="count">
@@ -21,7 +25,8 @@
         </select>
       </label>
       <label>种子
-        <input name="seed" inputmode="numeric" placeholder="留空就随机">
+        <input name="seed" inputmode="numeric" placeholder="留空就随机"
+               value="{{ fill.seed if fill else '' }}">
       </label>
 
       <div class="base">
@@ -31,13 +36,14 @@
           <p class="muted">留空就是纯文生图 —— 每次都会换一张脸</p>
         </div>
         <input type="file" id="base-file" accept="image/png,image/jpeg,image/webp" hidden>
-        <div class="base-on" id="base-on" hidden>
+        <div class="base-on" id="base-on" data-base="{{ fill.base if fill else '' }}" hidden>
           <img class="thumb" id="base-preview" alt="选中的底图">
           <div class="base-knobs">
             <p id="base-name" class="muted"></p>
             <label class="slider">重绘强度
-              <output id="denoise-out">0.45</output>
-              <input type="range" id="denoise" min="0.05" max="0.95" step="0.05" value="0.45">
+              <output id="denoise-out">{{ fill.denoise if fill else default_denoise }}</output>
+              <input type="range" id="denoise" min="0.05" max="0.95" step="0.05"
+                     value="{{ fill.denoise if fill else default_denoise }}">
             </label>
             <p class="muted">0.45 才把形象钉住；高过 0.55 就换脸了</p>
             <button type="button" class="link" id="base-clear">不用底图</button>
@@ -59,5 +65,6 @@
     </div>
   </div>
 </section>
+<script src="{{ url_for('static', path='api.js') }}" defer></script>
 <script src="{{ url_for('static', path='app.js') }}" defer></script>
 {% endblock %}

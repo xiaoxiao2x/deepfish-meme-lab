@@ -5,25 +5,13 @@
 (function () {
   "use strict";
 
-  // 前缀只有一处来源：后端把常量注进 body 的 data-*，这里照读
-  const API = document.body.dataset.api;
+  // 前缀与 POST 只有一处实现：api.js 先加载，这里照用
+  const { API, post } = window.LabApi;
   const IMAGES = document.body.dataset.images;
 
   const $ = (id) => document.getElementById(id);
   const cards = new Map(); // 相对路径 → 那张卡片
   const pictures = []; // 本次出过的图，按出来顺序
-
-  function post(path, payload) {
-    return fetch(API + path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).then(async (response) => {
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || "服务端没收下这件事");
-      return body;
-    });
-  }
 
   function say(text, bad) {
     const line = $("progress");
@@ -75,6 +63,13 @@
     $("denoise-out").textContent = denoise.value;
   });
   $("base-clear").addEventListener("click", dropBase);
+
+  // 从成品库点「用同参数重跑」跳回来时，底图也跟着回填：模板把那一截挂在
+  // #base-on 的 data-base 上，没带 from 就是空串，页面照旧是一张白纸。
+  if (baseOn.dataset.base) {
+    useBase(baseOn.dataset.base);
+    say("照配方填好了 —— 台词、种子、底图都在这儿，改哪一样都行。");
+  }
 
   async function sendBaseFile(file) {
     if (!file) return;
