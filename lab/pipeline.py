@@ -16,6 +16,7 @@ import hashlib
 import random
 import shutil
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -36,6 +37,7 @@ from .registry import EntrySource, load_entries, record_path, write_entry
 from .workflows import GenSpec, apply, load, model_name
 
 __all__ = [
+    "template_slot",
     "IMAGE_KIND",
     "MAX_SEED",
     "MadeImage",
@@ -162,16 +164,26 @@ def upload_name(path: Path) -> str:
     return f"lab-init-{digest}{path.suffix.lower()}"
 
 
+def template_slot(spec: GenSpec) -> str:
+    """这次生成走哪一槽模板：`img2img` 还是 `default`。
+
+    这个判断只有一份：pipeline 拿它挑配置里的文件名，`reproduce` 拿它把配方
+    记的那份钉回同一槽（配方是权威，但"哪一槽"仍由这里说了算 —— 两处各判一次，
+    迟早会有一处把有底图的那张当成文生图）。
+    """
+    return "default" if spec.init_image is None else "img2img"
+
+
 def _template_name(cfg: Config, spec: GenSpec) -> str:
     """有底图走底图模板，没有就走文生图 —— 这是两张不同的图，不是同一个旋钮。"""
-    if spec.init_image is None:
-        return cfg.workflows.default
-    if not cfg.workflows.img2img:
+    slot = template_slot(spec)
+    name = cfg.workflows.img2img if slot == "img2img" else cfg.workflows.default
+    if not name:
         raise ValueError(
             "给了底图，但 [workflows].img2img 没配模板名 —— "
             "去 config/default.toml 里补上 img2img 模板的文件名。"
         )
-    return cfg.workflows.img2img
+    return name
 
 
 def make(
@@ -182,6 +194,7 @@ def make(
     progress: Progress | None = None,
     client: EngineClient | None = None,
     today: date | None = None,
+    reserved: Iterable[int] = (),
 ) -> list[MadeImage]:
     """出一批图。返回每一张的落盘路径与它自己的种子。
 
@@ -190,6 +203,11 @@ def make(
 
     失败会往外抛 `comfy.EngineError` 家族 —— 管线不把引擎的故障翻译成"出错了"，
     那层翻译是 comfy 的活，这里只负责让已经出成的图不丢。
+
+    `reserved` 是"这几个号别用"。平常不需要 —— 账与目录一起算着号，不会回收。
+    一个它会用到的场景：复现时原图已经被清走、当天的账也一起没了（`output/` 整目录
+    被清空间清掉），号就会从配方那条重新数起，新图正好落到原图那个位置，把配方
+    自己那条记录的落点顶掉。调用方知道这种情况，把那个号递进来。
     """
     total = cfg.generate.count if count is None else int(count)
     if total < 1:
@@ -223,7 +241,8 @@ def make(
     ledger = record_path(cfg.paths.output_dir, today)
     # 号只增不收：目录里的号 + 当天记录里用过的号，取两者最大值再往前一格。
     # 只看目录的话，废图清走之后号会被回收，两条不同的生成顶着同一个 id。
-    serial = next_serial(out_dir, known=used_serials(load_entries(ledger)))
+    known = [*used_serials(load_entries(ledger)), *reserved]
+    serial = next_serial(out_dir, known=known)
     template_name = _template_name(cfg, spec)
     version = engine_version(engine)
     model = model_name(template)

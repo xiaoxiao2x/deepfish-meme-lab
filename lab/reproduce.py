@@ -17,11 +17,12 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
-from .comfy import EngineClient, EngineError
+from .comfy import EngineClient
 from .config import Config
 from .keeping import IMPORTED_KIND
-from .pipeline import MadeImage, Progress, make
-from .recording import find_base, resolve_recorded
+from .naming import parse_serial
+from .pipeline import MadeImage, Progress, make, template_slot
+from .recording import UNKNOWN_VERSION, engine_version, find_base, resolve_recorded
 from .registry import Entry, library_path, load_entries
 from .workflows import GenSpec, load, missing_titles, model_name
 
@@ -30,7 +31,7 @@ __all__ = ["Reproduction", "reproduce"]
 
 #: 重跑一条配方最少要这几栏有值。空串不是"没填"的委婉说法，是这条记录
 #: 重不出来 —— keep 收下的外来图就是这样：图的事实齐全，参数那一栏空着。
-_RUNNABLE = ("workflow", "model", "prompt")
+_RUNNABLE = ("workflow", "model", "prompt", "steps", "cfg")
 
 
 @dataclass(frozen=True)
@@ -56,27 +57,30 @@ def _recipe(cfg: Config, ident: str) -> Entry:
     found = find_base(entries, ident)
     if found is not None:
         return found
-    others = [one for one in entries if one.id == ident]
-    for one in others:
-        if one.kind == IMPORTED_KIND:
-            # 外来的那张：记的是图本身，不是出它的那次生成 —— 这一条注定重不出来。
-            raise ValueError(
-                f"{ident} 是 keep 收下的外来图（imported），当天账里没有它的来路，"
-                "生成那几栏是空的 —— 它没有配方可重跑，只能留在库里当图看。"
-            )
+    # 同号但只有别的阶段：说清楚"不是没有，是不能拿它重跑"，别让人以为号丢了。
+    other = next((one for one in entries if one.id == ident), None)
+    if other is None:
         raise ValueError(
-            f"配方库里 {ident} 只有 {one.kind} 那一条，它是从原图派生的。"
-            f"重跑要用同号的原图（{ident} 的 orig）—— "
-            "去 gallery 看看这个号还在不在。"
+            f"配方库里没有 {ident} —— 先用 python -m lab gallery 看有哪些号，"
+            "要重跑的那张得先被 keep 进配方库。"
+        )
+    if other.kind == IMPORTED_KIND:
+        # 外来的那张：记的是图本身，不是出它的那次生成 —— 这一条注定重不出来。
+        raise ValueError(
+            f"{ident} 是 keep 收下的外来图（imported），当天账里没有它的来路，"
+            "生成那几栏是空的 —— 它没有配方可重跑，只能留在库里当图看。"
         )
     raise ValueError(
-        f"配方库里没有 {ident} —— 先用 python -m lab gallery 看有哪些号，"
-        "要重跑的那张得先被 keep 进配方库。"
+        f"配方库里 {ident} 只有 {other.kind} 那一条，它是从原图派生的。"
+        f"重跑要用同号的原图（{ident} 的 orig）—— "
+        "去 gallery 看看这个号还在不在。"
     )
 
 
-def _runnable(entry: Entry) -> None:
+def _check_runnable(entry: Entry) -> None:
     """能重跑吗。缺哪一栏就说到哪一栏，别让人对着"复现失败"猜。"""
+    # 0 也当"不知道"：Entry 里没填的数值一律是 0（种子、步数、引导强度），
+    # 而 0 步、0 引导强度喂给引擎出的不是同一张，是随便哪一张。
     blank = [name for name in _RUNNABLE if not getattr(entry, name)]
     if blank:
         raise ValueError(
@@ -86,7 +90,7 @@ def _runnable(entry: Entry) -> None:
         )
 
 
-def _template(cfg: Config, entry: Entry) -> None:
+def _check_template(cfg: Config, entry: Entry) -> None:
     """配方指的那份模板，顺带核对它还是原来那份。
 
     模板是仓库里的文件，会被改。改了之后同一条配方跑出来的就不是原来那张 ——
@@ -146,24 +150,33 @@ def _pinned(cfg: Config, entry: Entry, spec: GenSpec) -> Config:
     配方自带模板名，它就是权威。
     """
     name = Path(entry.workflow).name
-    if spec.init_image is not None:
+    # 走哪一槽的问 pipeline（template_slot）—— 那里已经判过一次，这儿再判一次
+    # 迟早会有一处把有底图的那张当成文生图。
+    if template_slot(spec) == "img2img":
         return replace(cfg, workflows=replace(cfg.workflows, img2img=name))
     return replace(cfg, workflows=replace(cfg.workflows, default=name))
 
 
-def _pixels(path: Path) -> tuple[tuple[int, int], bytes]:
-    """一张图的（尺寸，RGB 像素）。比图只比这两样。
+@dataclass(frozen=True)
+class _Look:
+    """一张画的样子：尺寸 + RGB 像素。比图只比这两样。
 
     不比文件字节：PNG 的压缩参数变了不代表图画变了，反过来"字节不一样"
     也不该被说成"图不一样"。
     """
-    from PIL import Image
 
-    with Image.open(path) as opened:
-        return opened.size, opened.convert("RGB").tobytes()
+    size: tuple[int, int]
+    rgb: bytes
+
+    @classmethod
+    def of(cls, path: Path) -> _Look:
+        from PIL import Image
+
+        with Image.open(path) as opened:
+            return cls(size=opened.size, rgb=opened.convert("RGB").tobytes())
 
 
-def _original(cfg: Config, entry: Entry) -> tuple[tuple[int, int], bytes] | None:
+def _original(cfg: Config, entry: Entry) -> _Look | None:
     """原图现在的样子，量不出来就是 None。**要在重跑之前量**。
 
     先量后跑不是洁癖：重跑落在同一个日期目录里，号又是只增不收的，
@@ -173,29 +186,38 @@ def _original(cfg: Config, entry: Entry) -> tuple[tuple[int, int], bytes] | None
     original = resolve_recorded(cfg, entry.file)
     if not original.is_file():
         return None
-    return _pixels(original)
+    return _Look.of(original)
 
 
-def _compare(
-    entry: Entry, before: tuple[tuple[int, int], bytes] | None, made: MadeImage
-) -> tuple[bool | None, str]:
+def _compare(entry: Entry, before: _Look | None, made: MadeImage) -> tuple[bool | None, str]:
     """新图与原图比一遍，返回（像不像，要补充的一句话）。"""
     if before is None:
         return None, f"原图 {entry.file} 不在了，这次没得比 —— 只验了它还能跑出片。"
-    return (_pixels(made.path) == before), ""
+    return _Look.of(made.path) == before, ""
+
+
+def _reserved(cfg: Config, entry: Entry) -> tuple[int, ...]:
+    """原图那个号别让这次重跑捡回去。
+
+    号是从"当天的账 + 落点目录"里算的；两者都被清走（整个 output/ 删掉清空间）
+    之后会从 1 重新数，新图正好落在原图那个位置 —— 那份配方自己指着的落点就
+    变成了一张别的图，再重跑一次就成了自己跟自己比。所以原图那个号一律留出来。
+    """
+    serial = parse_serial(Path(entry.file))
+    return () if serial is None else (serial,)
 
 
 def _version_note(entry: Entry, engine: EngineClient, same: bool | None) -> str:
     """引擎版本对不上时说一句 —— 这是"两张不一样"最常见的解释。"""
-    getter = getattr(engine, "version", None)
-    if getter is None:
-        return ""
-    try:
-        actual = str(getter())
-    except EngineError:
-        return ""
+    actual = engine_version(engine)
     if actual == entry.comfyui_version:
         return ""
+    if UNKNOWN_VERSION in (actual, entry.comfyui_version):
+        # 「不知道」不是「不一样」：说成"版本不一样"会把人引到错的地方去查。
+        return (
+            f"引擎版本对不上号：配方记的是 {entry.comfyui_version}，这次是 {actual} —— "
+            "两边是不是同一个版本说不准，也就解释不了这两张为什么一样或者不一样。"
+        )
     if same is True:
         # 一致了也要说：判据 ② 认的是"同引擎版本下一致"，跨版本一致算运气。
         return (
@@ -223,8 +245,8 @@ def reproduce(
     （引擎的问题）—— 和另外几站一样，命令行那一层负责把它们说成人话。
     """
     entry = _recipe(cfg, ident)
-    _runnable(entry)
-    _template(cfg, entry)
+    _check_runnable(entry)
+    _check_template(cfg, entry)
     spec = _spec(cfg, entry)
 
     # 原图先量下来：跑完之后那个路径可能已经被这次的新图占回去了（见 _original）。
@@ -234,7 +256,15 @@ def reproduce(
     # "两张不一样"是不是换过引擎（判据 ② 认的是同引擎版本下的一致）。
     engine = client or EngineClient(host=cfg.comfy.host, port=cfg.comfy.port)
     pinned = _pinned(cfg, entry, spec)
-    made = make(pinned, spec, count=1, progress=progress, client=engine, today=today)
+    made = make(
+        pinned,
+        spec,
+        count=1,
+        progress=progress,
+        client=engine,
+        today=today,
+        reserved=_reserved(cfg, entry),
+    )
     (one,) = made
 
     same, note = _compare(entry, before, one)

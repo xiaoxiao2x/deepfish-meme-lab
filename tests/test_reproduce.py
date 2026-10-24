@@ -297,6 +297,43 @@ def test_a_missing_original_is_not_called_a_match(tmp_path):
     assert report.same is None
     assert "不在了" in report.note
     assert report.image.path.is_file()
+    # 原图那个号得让出来：账和目录都空了之后号会从 1 重新数，
+    # 新图正好落到原图那个位置 —— 那份配方指着的落点就成了一张别的图。
+    assert report.image.id == "fish-002"
+
+
+def test_a_second_run_without_the_original_does_not_compare_against_itself(tmp_path):
+    """比不动就说比不动 —— 第二次也一样，不许把上一趟的重跑当成"原图"。"""
+    cfg = _repo(tmp_path)
+    entry = kept(cfg, recipe())
+    (Path(cfg.repo_root) / entry.file).unlink()
+
+    first = reproduce(cfg, "fish-001", client=RecordingEngine(), today=TODAY)
+    second = reproduce(cfg, "fish-001", client=RecordingEngine(), today=TODAY)
+
+    assert first.same is None and second.same is None
+    assert second.image.id != first.image.id
+
+
+def test_an_unknown_version_is_not_called_a_different_version(tmp_path):
+    """配方那栏是「未知」时，说成"版本不一样"会把人引到错的地方去查。"""
+    report = _run(tmp_path, recipe_kwargs={"comfyui_version": "未知"})
+
+    assert "版本不一样" not in report.note
+    assert "说不准" in report.note
+
+
+def test_a_recipe_without_steps_says_which_field_is_blank(tmp_path):
+    """0 步不是"随便跑跑"，是这一栏当初就没记 —— 报缺字段，别照 0 喂引擎。"""
+    cfg = _repo(tmp_path)
+    kept(cfg, recipe(steps=0, cfg=0.0))
+
+    with pytest.raises(ValueError) as caught:
+        reproduce(cfg, "fish-001", client=RecordingEngine(), today=TODAY)
+
+    said = str(caught.value)
+    assert "steps" in said
+    assert "cfg" in said
 
 
 def test_a_different_engine_version_is_mentioned(tmp_path):
