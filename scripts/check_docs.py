@@ -150,7 +150,9 @@ def documented_titles(line: str) -> set[str]:
 def find_anchor(anchor: str) -> str:
     hits = [line for line in DESIGN.read_text(encoding="utf-8").splitlines() if anchor in line]
     if len(hits) != 1:
-        raise SystemExit(f"docs/design.md 里「{anchor}」命中 {len(hits)} 行 —— 锚点得唯一，检查才有意义")
+        raise SystemExit(
+            f"docs/design.md 里「{anchor}」命中 {len(hits)} 行 —— 锚点得唯一，检查才有意义"
+        )
     return hits[0]
 
 
@@ -169,8 +171,12 @@ def compare_titles(what: str, documented: set[str], code: set[str], problems: li
 
 def check_titles(problems: list[str]) -> None:
     generation = {*REQUIRED_TITLES, TITLE_SAMPLER, TITLE_INIT_IMAGE, TITLE_DENOISE, TITLE_OUTPUT}
-    compare_titles("生成模板", documented_titles(find_anchor(GENERATION_ANCHOR)), generation, problems)
-    compare_titles("后处理模板", documented_titles(find_anchor(STICKER_ANCHOR)), set(STICKER_TITLES), problems)
+    compare_titles(
+        "生成模板", documented_titles(find_anchor(GENERATION_ANCHOR)), generation, problems
+    )
+    compare_titles(
+        "后处理模板", documented_titles(find_anchor(STICKER_ANCHOR)), set(STICKER_TITLES), problems
+    )
 
 
 def design_block(anchor: str) -> list[str]:
@@ -179,7 +185,9 @@ def design_block(anchor: str) -> list[str]:
     lines = DESIGN.read_text(encoding="utf-8").splitlines()
     start = next(index for index, line in enumerate(lines) if anchor in line)
     opened = next(index for index in range(start, len(lines)) if lines[index].startswith("```"))
-    closed = next(index for index in range(opened + 1, len(lines)) if lines[index].startswith("```"))
+    closed = next(
+        index for index in range(opened + 1, len(lines)) if lines[index].startswith("```")
+    )
     return lines[opened + 1 : closed]
 
 
@@ -222,9 +230,13 @@ def compare_keys(problems: list[str]) -> None:
     missing = sorted(written - documented)
     extra = sorted(documented - written)
     if missing:
-        problems.append(f"docs/design.md §6.2 的条目 schema 少了 {'、'.join(missing)}（Entry.as_json 里有）")
+        problems.append(
+            f"docs/design.md §6.2 的条目 schema 少了 {'、'.join(missing)}（Entry.as_json 里有）"
+        )
     if extra:
-        problems.append(f"docs/design.md §6.2 的条目 schema 多了 {'、'.join(extra)}（Entry.as_json 里没有）")
+        problems.append(
+            f"docs/design.md §6.2 的条目 schema 多了 {'、'.join(extra)}（Entry.as_json 里没有）"
+        )
 
 
 def check_schema(problems: list[str]) -> None:
@@ -239,11 +251,17 @@ def check_schema(problems: list[str]) -> None:
     again = Entry.from_json(first).as_json()
     if again != first:
         drifted = sorted(key for key in first if first.get(key) != again.get(key))
-        problems.append(f"Entry 读回来再写出去跟原来不一样：{'、'.join(drifted) or '（键集合变了）'}")
+        problems.append(
+            f"Entry 读回来再写出去跟原来不一样：{'、'.join(drifted) or '（键集合变了）'}"
+        )
 
 
 def tree_modules() -> set[str]:
-    return {match.group(1) for line in design_block(ARCH_ANCHOR) if (match := TREE_MODULE.match(line))}
+    return {
+        match.group(1)
+        for line in design_block(ARCH_ANCHOR)
+        if (match := TREE_MODULE.match(line))
+    }
 
 
 def lab_modules() -> set[str]:
@@ -274,7 +292,9 @@ def check_arch(problems: list[str]) -> None:
 
     stale = sorted(set(OFF_TREE) - actual)
     if stale:
-        problems.append(f"scripts/check_docs.py 的 OFF_TREE 里这些文件已经不在 lab/ 了：{'、'.join(stale)}")
+        problems.append(
+            f"scripts/check_docs.py 的 OFF_TREE 里这些文件已经不在 lab/ 了：{'、'.join(stale)}"
+        )
 
     lines = DESIGN.read_text(encoding="utf-8").splitlines()
     start = next(index for index, line in enumerate(lines) if DUTY_ANCHOR in line)

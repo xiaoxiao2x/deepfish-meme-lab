@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 __all__ = [
     "DEFAULT_MAX_POLLS",
@@ -29,6 +29,7 @@ __all__ = [
     "EngineClient",
     "EngineError",
     "EngineJobFailed",
+    "EngineLike",
     "EngineRejected",
     "EngineTimeout",
     "EngineUnreachable",
@@ -86,6 +87,29 @@ class JobResult:
 
 
 # ---------- 客户端 ----------
+
+
+class EngineLike(Protocol):
+    """pipeline / reproduce / postprocess 眼里「一个引擎」是什么样。
+
+    只列它们真正调用的四个方法 —— 不是 EngineClient 的完整镜像。理由是可测性：
+    测试用 RecordingEngine 这种手写替身顶掉真引擎（不出网、不出片），替身不可能
+    也是 EngineClient 的子类。按具体类标注形参，等于要求每个替身先去继承它。
+
+    version 不在这儿：它只用来在账里记一栏（取不到就写「未知」，见
+    lab.recording.engine_version 的 duck typing），不该成为「能不能当引擎用」的
+    门槛 —— 少一个版本号不妨碍出片。
+    """
+
+    def submit(self, prompt: dict, client_id: str | None = None) -> str: ...
+
+    def wait(
+        self, prompt_id: str, on_poll: Callable[[int, float], None] | None = None
+    ) -> JobResult: ...
+
+    def fetch(self, image: GeneratedImage, dest_dir: Path) -> Path: ...
+
+    def upload_image(self, path: Path, name: str | None = None) -> str: ...
 
 
 class EngineClient:

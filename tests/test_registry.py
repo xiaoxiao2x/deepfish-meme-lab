@@ -178,8 +178,12 @@ def test_the_same_id_on_two_days_does_not_overwrite_yesterdays(tmp_path):
     一起时早期实现直接盖掉前一条，配方库悄悄少一条，谁也不知道。
     """
     path = library_path(tmp_path)
-    write_entry(path, entry(kind="captioned", seed=111, created_at="2026-10-23T10:00:00+08:00"), library=True)
-    write_entry(path, entry(kind="captioned", seed=222, created_at="2026-10-24T10:00:00+08:00"), library=True)
+    for seed, day in ((111, "2026-10-23"), (222, "2026-10-24")):
+        write_entry(
+            path,
+            entry(kind="captioned", seed=seed, created_at=f"{day}T10:00:00+08:00"),
+            library=True,
+        )
 
     assert [one.seed for one in load_entries(path)] == [111, 222]
 

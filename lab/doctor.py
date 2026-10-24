@@ -143,7 +143,9 @@ def check_weights(cfg: Config) -> CheckResult:
         )
 
     total = sum(spec.size_gb for spec in cfg.comfy.weights)
-    return CheckResult(key, label, Status.OK, f"{len(cfg.comfy.weights)} 个文件在位，共约 {total:.1f} GB")
+    return CheckResult(
+        key, label, Status.OK, f"{len(cfg.comfy.weights)} 个文件在位，共约 {total:.1f} GB"
+    )
 
 
 # ── custom_nodes ──────────────────────────────────────────────────────

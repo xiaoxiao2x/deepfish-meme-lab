@@ -481,7 +481,8 @@ def test_a_batched_template_is_refused_instead_of_silently_dropped(tmp_path):
 
     它们没法单独重跑，所以宁可当场报错 —— 白算几分钟再悄悄丢掉 N-1 张更糟。
     """
-    made_before = sorted((tmp_path / "output").rglob("*.png")) if (tmp_path / "output").is_dir() else []
+    output = tmp_path / "output"
+    made_before = sorted(output.rglob("*.png")) if output.is_dir() else []
     assert made_before == []
 
     with pytest.raises(ValueError, match="batch_size"):

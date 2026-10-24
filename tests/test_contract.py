@@ -115,7 +115,8 @@ def test_a_node_that_is_not_a_node():
 
 def test_choices_the_engine_scans_at_runtime_are_let_through():
     """LoadImage 的候选是引擎现场扫的：模板里写哪张都可能是对的，不能报。"""
-    assert problems({"1": {"class_type": "LoadImage", "inputs": {"image": "我随便写的.png"}}}, STUB_OBJECT_INFO) == []
+    template = {"1": {"class_type": "LoadImage", "inputs": {"image": "我随便写的.png"}}}
+    assert problems(template, STUB_OBJECT_INFO) == []
 
 
 def test_the_new_combo_shape_is_read_too():
@@ -139,7 +140,8 @@ def test_a_wildcard_input_takes_anything():
     object_info = {
         "Wild": {"input": {"required": {"any": ["*"]}}, "output": ["ANY"]},
     }
-    assert problems({"1": {"class_type": "Wild", "inputs": {"any": {"乱七八糟": 1}}}}, object_info) == []
+    template = {"1": {"class_type": "Wild", "inputs": {"any": {"乱七八糟": 1}}}}
+    assert problems(template, object_info) == []
 
 
 def test_the_template_name_is_put_in_front():

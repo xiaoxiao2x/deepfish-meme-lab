@@ -35,8 +35,11 @@ step() {
 # mypy 对 [tool.mypy] 里不认识的键只打一行 Unrecognized option 就照常成功
 # （mypy 2.4 没有 --strict-config）。配置写错的后果是「其实没在检查」，
 # 所以这里自己把那一行当失败。
+# 查哪些文件由 pyproject 的 [tool.mypy] files 说了算 —— 这里**不带**目录参数，
+# 让「查什么」只有一个来源。带上来就会盖掉配置文件，两处各说各的（这条已经
+# 错过一次：files 只写了 lab，tests 里的六个错误一直没被查）。
 mypy_gate() {
-    out="$("$MYPY" lab 2>&1)" && status=0 || status=$?
+    out="$("$MYPY" 2>&1)" && status=0 || status=$?
     printf "%s\n" "$out"
     if printf "%s" "$out" | grep -q "Unrecognized option"; then
         printf "mypy 报了 Unrecognized option：pyproject 的 [tool.mypy] 里有它不认识的键，先改对。\n" >&2
@@ -45,6 +48,8 @@ mypy_gate() {
     return "$status"
 }
 
+# ruff 同理不带路径：不带就是「扫这个仓库」，scripts/ 也在内。以前写死 `check lab tests`，
+# scripts/check_docs.py 里的 9 处超长行因此一直没人查 —— 而它自己还是门禁的一部分。
 if [ "$#" -eq 0 ]; then
     set -- pytest ruff mypy docs
 fi
@@ -52,7 +57,7 @@ fi
 for name in "$@"; do
     case "$name" in
         pytest) step "pytest（全部测试）" "$PYTEST" -q ;;
-        ruff)   step "ruff（静态检查）" "$RUFF" check lab tests ;;
+        ruff)   step "ruff（静态检查）" "$RUFF" check ;;
         mypy)   step "mypy（类型检查）" mypy_gate ;;
         docs)   step "docs（文档与代码对账）" "$PY" scripts/check_docs.py ;;
         *)

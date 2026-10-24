@@ -52,8 +52,14 @@ def load(path: Path) -> dict:
 
 
 def _titles(wf: dict) -> set[str]:
-    """模板里出现的所有 _meta.title —— "有没有那个标题"全靠它判断。"""
-    return {(n.get("_meta") or {}).get("title") for n in wf.values()}
+    """模板里出现的所有 _meta.title —— "有没有那个标题"全靠它判断。
+
+    只收字符串：缺 _meta、或 _meta 里没 title 的节点不该在集合里留一个 None ——
+    差集（REQUIRED_TITLES - _titles(...)）里混进 None，报出来的「缺标题」就成了
+    一句话看不懂的东西。
+    """
+    found = {(n.get("_meta") or {}).get("title") for n in wf.values()}
+    return {title for title in found if isinstance(title, str)}
 
 
 def test_at_least_one_template_exists():

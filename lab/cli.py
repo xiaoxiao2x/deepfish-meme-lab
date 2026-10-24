@@ -5,7 +5,7 @@
     python -m lab assets dupes    按索引列出重复组
     python -m lab make            给一句话，出一批图（这是工作台的主要用途）
     python -m lab sticker <图片>  把一张图去背成透明底贴纸
-    python -m lab caption <贴纸> --text "你好呀"  # glossary-ok: 子命令名，docs/roadmap.md:165 定死的对外接口
+    python -m lab caption <贴纸> --text "你好呀"  # glossary-ok: docs/roadmap.md:165
                                   给贴纸印一句台词，同目录同序号落成 .captioned.png
     python -m lab keep <图片>     把这张定稿搬进配方库（data/registry.json）
     python -m lab gallery         列出配方库里留了什么
@@ -673,13 +673,19 @@ def build_parser() -> argparse.ArgumentParser:
     make_parser.add_argument(
         "--init-image",
         default=None,
-        help="底图路径：给了它就走 img2img 模板（[workflows].img2img 那份），把形象钉在原来那张图上",
+        help=(
+            "底图路径：给了它就走 img2img 模板（[workflows].img2img 那份），"
+            "把形象钉在原来那张图上"
+        ),
     )
     make_parser.add_argument(
         "--denoise",
         type=float,
         default=None,
-        help="重绘强度 0–1（默认取 [generate].denoise，只在给了 --init-image 时有意义）：越大越自由，越小越像原图",
+        help=(
+            "重绘强度 0–1（默认取 [generate].denoise，只在给了 --init-image 时有意义）："
+            "越大越自由，越小越像原图"
+        ),
     )
     make_parser.add_argument(
         "--workflow",

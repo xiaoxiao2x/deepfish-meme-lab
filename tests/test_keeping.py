@@ -140,7 +140,12 @@ def test_each_stage_of_the_same_id_is_its_own_entry(tmp_path):
     ledger(cfg)
     write_entry(
         record_path(cfg.paths.output_dir, TODAY),
-        entry(kind="sticker", file="fish-001.sticker.png", seed=0, workflow="workflows/fish-sticker.json"),
+        entry(
+            kind="sticker",
+            file="fish-001.sticker.png",
+            seed=0,
+            workflow="workflows/fish-sticker.json",
+        ),
     )
 
     keep(cfg, original, today=TODAY)

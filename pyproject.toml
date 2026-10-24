@@ -30,19 +30,24 @@ line-length = 100
 [tool.ruff.lint]
 # 显式 select：默认规则集随版本变。
 select = [
-    "E4",  # import 相关的错误
-    "E7",  # 语句层错误
-    "E9",  # 运行时错误
-    "F",   # pyflakes：未用变量、未定义名
-    "C4",  # 能用推导式 / 字面量的地方
-    "UP",  # 语法可以更现代
-    "I",   # import 排序
-    "B",   # bugbear：常见陷阱
+    "E4",   # import 相关的错误
+    "E7",   # 语句层错误
+    "E9",   # 运行时错误
+    "E501", # 行宽：line-length 只声明了上限，不选这条就没人查（本次补上）
+    "F",    # pyflakes：未用变量、未定义名
+    "C4",   # 能用推导式 / 字面量的地方
+    "UP",   # 语法可以更现代
+    "I",    # import 排序
+    "B",    # bugbear：常见陷阱
+    "W",    # 空白类：结尾缺换行（W292）、行尾空格 —— 肉眼看不见，只能靠工具
 ]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["lab"]
+# tests 也一起查：假引擎是手写的替身，签名漂了只有类型检查拦得住
+# （测试运行时靠 duck typing 蒙过去，崩是崩不了，但替身会悄悄和真 EngineClient
+# 分家）。check.sh 不再硬写目录，统一读这里的 files。
+files = ["lab", "tests"]
 # 这几条是本次定下的收紧项，lab/ 已经全过（不是「以后再说」的待办）。
 # 注意：mypy 的配置文件用下划线键名（--strict-equality 那种连字符写法只属于命令行），
 # mypy 2.4 不认得 --strict-config，未知键只打一行 Unrecognized option 就照常成功 ——

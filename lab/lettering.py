@@ -57,7 +57,7 @@ __all__ = [
 ]
 
 #: 带字成图的后缀：`fish-007.captioned.png` 里那一段（docs/roadmap.md:159 定死的
-#: 对外命名，改不得）。命令行子命令也叫 caption，那是同一个对外名字。  # glossary-ok: caption 是 docs/roadmap.md:165 定死的对外子命令名
+#: 对外命名，改不得）。命令行那个子命令用的是同一个词 —— 对外名字只有一个。
 LETTERED_KIND = "captioned"
 
 #: 本机找得到就能直接开工的中文字体。按顺序挑第一个存在的；都不是就用报错信息

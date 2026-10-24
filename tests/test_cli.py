@@ -22,7 +22,9 @@ def _children(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentPar
     return {}
 
 
-def _walk(parser: argparse.ArgumentParser, trail: tuple[str, ...]) -> list[tuple[str, argparse.ArgumentParser]]:
+def _walk(
+    parser: argparse.ArgumentParser, trail: tuple[str, ...]
+) -> list[tuple[str, argparse.ArgumentParser]]:
     found = [((" ".join(trail) or "lab"), parser)]
     for name, sub in _children(parser).items():
         found.extend(_walk(sub, (*trail, name)))

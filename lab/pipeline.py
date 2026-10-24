@@ -22,7 +22,7 @@ from datetime import date
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from .comfy import EngineClient, GeneratedImage
+from .comfy import EngineClient, EngineLike, GeneratedImage
 from .config import Config
 from .naming import daily_dir, entry_id, next_serial, output_name
 from .paths import check_image_file
@@ -192,7 +192,7 @@ def make(
     count: int | None = None,
     seed: int | None = None,
     progress: Progress | None = None,
-    client: EngineClient | None = None,
+    client: EngineLike | None = None,
     today: date | None = None,
     reserved: Iterable[int] = (),
 ) -> list[MadeImage]:

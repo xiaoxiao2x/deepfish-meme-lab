@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from .comfy import EngineClient, EngineError
+from .comfy import EngineClient, EngineError, EngineLike
 from .config import Config
 from .naming import entry_id, folder_for, plan_output
 from .paths import check_still_image
@@ -74,7 +74,7 @@ def _check_alpha(path: Path) -> None:
 def sticker(
     cfg: Config,
     image: Path | str,
-    client: EngineClient | None = None,
+    client: EngineLike | None = None,
     today: date | None = None,
 ) -> MadeSticker:
     """把一张图去背成透明底 PNG（票 #9）。

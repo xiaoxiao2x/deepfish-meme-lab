@@ -103,7 +103,13 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 
 - Python `>= 3.11`（`pyproject.toml` 的 `requires-python`，ruff 的 `target-version` 与 mypy 的
   `python_version` 都钉在 3.11）。写 3.12 才有的语法，本地 3.14 上跑得动，CI 上会炸。
-- 行宽 100，`ruff` 的 select 只有 `E4 E7 E9 F C4 UP I B`。**规则默认值随 ruff 版本漂**，所以
-  版本钉在 CI 与 README 里，改的时候两处一起改。
+- 行宽 100，`ruff` 的 select 是 `E4 E7 E9 E501 F C4 UP I B W`。**规则默认值随 ruff 版本漂**，
+  所以版本钉在 CI 与 README 里，改的时候两处一起改。行宽与末尾换行都在这份 select 里 ——
+  写进标准的规矩得有一条工具在读，否则「行宽 100」只是一句话（`E501` 与 `W` 是后来补的，
+  补之前 16 处超长行、6 处缺末尾换行躺了整整一轮）。
+- `mypy` 查 `lab` **和 `tests`**（`pyproject.toml` 的 `[tool.mypy] files`）。测试里的假引擎
+  是手写的替身，签名漂了只有类型检查拦得住；`scripts/check.sh` 调 `mypy` 时不带目录参数，
+  查哪些文件由 `pyproject.toml` 一个地方说了算。`ruff` 也一样不带路径（不带 = 扫整个仓库，
+  `scripts/` 在内）—— 写死 `check lab tests` 的那几年，`scripts/check_docs.py` 自己就没人查。
 - 三方依赖只有 `Pillow`。往 `lab/` 里加依赖之前先想：这条能不能用标准库解决（`lab/naming.py`、
   `lab/paths.py`、`lab/registry.py` 都是零依赖的，是有意的 —— 它们被每一层 import）。

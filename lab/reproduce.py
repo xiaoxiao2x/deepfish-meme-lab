@@ -17,7 +17,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
-from .comfy import EngineClient
+from .comfy import EngineClient, EngineLike
 from .config import Config
 from .keeping import IMPORTED_KIND
 from .naming import parse_serial
@@ -207,7 +207,7 @@ def _reserved(cfg: Config, entry: Entry) -> tuple[int, ...]:
     return () if serial is None else (serial,)
 
 
-def _version_note(entry: Entry, engine: EngineClient, same: bool | None) -> str:
+def _version_note(entry: Entry, engine: object, same: bool | None) -> str:
     """引擎版本对不上时说一句 —— 这是"两张不一样"最常见的解释。"""
     actual = engine_version(engine)
     if actual == entry.comfyui_version:
@@ -236,7 +236,7 @@ def reproduce(
     ident: str,
     *,
     progress: Progress | None = None,
-    client: EngineClient | None = None,
+    client: EngineLike | None = None,
     today: date | None = None,
 ) -> Reproduction:
     """重跑 ident 那条配方，产出一张新图并落进当天的全量记录。
@@ -270,5 +270,8 @@ def reproduce(
     same, note = _compare(entry, before, one)
     version_note = _version_note(entry, engine, same)
     return Reproduction(
-        recipe=entry, image=one, same=same, note=" ".join(part for part in (note, version_note) if part)
+        recipe=entry,
+        image=one,
+        same=same,
+        note=" ".join(part for part in (note, version_note) if part),
     )

@@ -38,6 +38,10 @@ from lab.lettering import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: 命令行子命令名（docs/roadmap.md:165 定死的对外接口）。写成常量是为了下面几处
+#: 调用不必每行都挂豁免。
+CAPTION = "caption"  # glossary-ok: 这一行是那个对外名字的唯一出处
 TODAY = date(2026, 10, 24)
 LATIN_ONLY = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 
@@ -332,12 +336,12 @@ def test_a_collection_without_a_chinese_face_is_refused(tmp_path):
 
     def renamed(path, size=10, index=0, **kwargs):
         face = real(str(path), size=size, index=index)
-        face.getname = lambda: (f"Test Sans {index}", "Regular")  # type: ignore[method-assign]
+        face.getname = lambda: (f"Test Sans {index}", "Regular")
         return face
 
     lettering._preferred_index.cache_clear()
     try:
-        ImageFont.truetype = renamed  # type: ignore[assignment]
+        ImageFont.truetype = renamed
         with pytest.raises(LetteringError) as caught:
             letter(
                 _cfg(tmp_path, font=collection),
@@ -347,7 +351,7 @@ def test_a_collection_without_a_chinese_face_is_refused(tmp_path):
                 today=TODAY,
             )
     finally:
-        ImageFont.truetype = real  # type: ignore[assignment]
+        ImageFont.truetype = real
         lettering._preferred_index.cache_clear()
 
     assert "简体中文" in str(caught.value), str(caught.value)
@@ -784,7 +788,7 @@ def test_cli_lettering_writes_a_captioned_png(tmp_path, capsys):
     from lab.cli import main
 
     repo = _twin_repo(tmp_path, any_cjk_font())
-    code = main(["caption", str(sticker_png(tmp_path)), "--text", "你好呀"], repo_root=repo)  # glossary-ok: caption 是 docs/roadmap.md:165 定死的子命令名
+    code = main([CAPTION, str(sticker_png(tmp_path)), "--text", "你好呀"], repo_root=repo)
 
     out = capsys.readouterr().out
     assert code == 0, out
@@ -797,7 +801,7 @@ def test_cli_lettering_reports_a_missing_font(tmp_path, capsys):
     from lab.cli import main
 
     repo = _twin_repo(tmp_path, tmp_path / "nope.ttc")
-    code = main(["caption", str(sticker_png(tmp_path)), "--text", "你好呀"], repo_root=repo)  # glossary-ok: 子命令名，docs/roadmap.md:165 定死的对外接口
+    code = main([CAPTION, str(sticker_png(tmp_path)), "--text", "你好呀"], repo_root=repo)
 
     assert code == 1
     err = capsys.readouterr().err
@@ -809,6 +813,6 @@ def test_cli_lettering_needs_the_text_flag(tmp_path):
     from lab.cli import main
 
     with pytest.raises(SystemExit) as caught:
-        main(["caption", str(sticker_png(tmp_path))], repo_root=_twin_repo(tmp_path, any_cjk_font()))  # glossary-ok: 缺 --text 就该被 argparse 挡下，这里的 caption 是子命令名
+        main([CAPTION, str(sticker_png(tmp_path))], repo_root=_twin_repo(tmp_path, any_cjk_font()))
 
     assert caught.value.code == 2
