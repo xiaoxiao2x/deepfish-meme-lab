@@ -30,20 +30,16 @@ jobs:
       - name: 装依赖
         run: |
           python -m pip install --upgrade pip
-          # 工具版本钉住：门禁的规则集写在 pyproject.toml 里，但规则**默认值**
-          # 随版本漂 —— 不钉版本，升级一次 ruff 就可能换一套标准。
-          # 这几个数抄自 README「本次验证的版本」，改的时候两处一起改。
-          #
-          # 上面那几件是工作台自己要用的（界面那套只在 lab/web.py 里 import），
-          # 跟着 pyproject.toml 的下界走、不钉具体版本；下面三件是门禁工具，必须钉。
+          # 运行时依赖只有一份来源：pyproject.toml，这里现读现装。
+          # 手抄一份到这里，加依赖时就会漏 —— 本地装着所以本地绿，推上去
+          # pytest 收集阶段才炸（M5.1 真漏过：FastAPI / uvicorn / jinja2）。
+          # requires-python 是 3.11，tomllib 在标准库里，这一步开箱可用。
           python -m pip install \
-            "Pillow>=12" \
-            "fastapi>=0.162" \
-            "uvicorn>=0.54" \
-            "jinja2>=3.1" \
-            pytest==9.1.1 \
-            ruff==0.17.1 \
-            mypy==2.4.0
+            $(python -c "import tomllib,pathlib;print(' '.join(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']))")
+          # 工具必须钉版本：门禁的规则集写在 pyproject.toml 里，但规则**默认值**
+          # 随版本漂 —— 不钉，升级一次 ruff 就可能换一套标准。
+          # 这几个数抄自 README「本次验证的版本」，改的时候两处一起改。
+          python -m pip install pytest==9.1.1 ruff==0.17.1 mypy==2.4.0
 
       - name: 门禁（pytest + ruff + mypy + docs）
         run: ./scripts/check.sh
