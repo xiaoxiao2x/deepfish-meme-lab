@@ -8,9 +8,9 @@
 
 ## 状态
 
-**实现中** —— 设计与路线已定稿；第一阶段（M1–M4）按 [票](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues) 推进。
+**实现中** —— 设计与路线已定稿；第一阶段（M1–M4）已收口（规格 [#1](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/1)），M5（本地界面）在做（规格 [#15](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)，实施 [#16–#20](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)）。
 
-M1 环境补齐、M2 出图管线、M3 的去背与加字、M4 的两本账都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。每次落盘都顺手在当天记一笔（`output/<日期>/registry.local.json`，含废图，不进 git）；挑中的那张用 `python -m lab keep <图片>` 连种子和参数一起搬进配方库 `data/registry.json`（进 git），`python -m lab gallery` 看库里有什么。`python -m lab reproduce fish-001` 拿库里那条配方再跑一次，当场比出「逐像素一致 / 不一样 / 没得比」。M3 还剩规格导出。
+M1 环境补齐、M2 出图管线、M3 的去背与加字、M4 的两本账都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。每次落盘都顺手在当天记一笔（`output/<日期>/registry.local.json`，含废图，不进 git）；挑中的那张用 `python -m lab keep <图片>` 连种子和参数一起搬进配方库 `data/registry.json`（进 git），`python -m lab gallery` 看库里有什么。`python -m lab reproduce fish-001` 拿库里那条配方再跑一次，当场比出「逐像素一致 / 不一样 / 没得比」。M3 还剩规格导出。第五个里程碑（M5）从出片台开始：`python3 -m lab serve` 已经能起本地界面，四个页面（出片台 / 素材库 / 成品库 / 设置）的导航通了（规格 [票 #15](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)，实施 #16–#20）。
 
 ## 跑起来
 
@@ -39,7 +39,7 @@ python3 -m lab assets dupes  # 按索引列出重复组
 python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通（--rgba 时回的图带透明通道）
 ```
 
-三方依赖只有一个 **Pillow**（读图算哈希、回读校验去背成品的 alpha）；`lab doctor` 连它都不碰，纯标准库。
+三方依赖是 **Pillow**（读图算哈希、回读校验去背成品的 alpha）加界面那套 **FastAPI / uvicorn / Jinja2**（只在 `lab/web.py` 里 import）；`lab doctor` 连它们都不碰，纯标准库。
 去背的模型推理在引擎里做（ComfyUI-RMBG 的节点），工作台只负责递图与收图 —— 首次用到某只模型时引擎会自己下载权重。
 系统的 `python3` 直接跑（`tomllib` 要 3.11+）。
 
@@ -47,7 +47,7 @@ python3 -m lab stub          # 起个假引擎：没显卡也能把这段走通�
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install pytest Pillow ruff mypy
+.venv/bin/pip install fastapi uvicorn jinja2 pytest Pillow ruff mypy
 ```
 
 改完代码跑门禁 —— 四条都过才算过：
@@ -74,6 +74,19 @@ python3 -m venv .venv
 ./scripts/comfy.sh log      # 看日志
 ./scripts/comfy.sh stop
 ```
+
+## 起本地界面
+
+```bash
+python3 -m lab serve               # 默认 http://127.0.0.1:8765
+python3 -m lab serve --port 8799   # 换端口；地址与端口也可以写进 config/local.toml 的 [server]
+```
+
+记住它打印出来的那个地址，浏览器打开 —— 四个页面（出片台 / 素材库 / 成品库 / 设置）的导航是通的。
+界面跟命令行在同一个进程里，用的是同一套 `lab/`；页面是现成的 HTML 与 CSS，随包发，**没有构建步骤**
+（不用 npm，仓库里也不会长出 `node_modules`），改完刷新浏览器就看见。
+
+眼下四个页面还是骨架：出片台只有空壳，参数面板与逐张出片（SSE 推进度）在 M5.2 接上。
 
 ## 一份临时仓库
 
@@ -131,7 +144,7 @@ python3 -m lab make -p "chibi blue whale girl, sticker style" -n 2 --repo-root "
 ## 依赖
 
 - 本地 **ComfyUI**（RTX 5070 Ti 16 GB；基座 FLUX.2 Klein 4B）
-- Python + Pillow（图像处理）、ffmpeg（动图，后续）
+- Python + Pillow（图像处理）、FastAPI / uvicorn / Jinja2（本地界面）、ffmpeg（动图，后续）
 
 ## 素材与输出
 

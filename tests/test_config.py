@@ -116,3 +116,23 @@ def test_repo_default_config_loads():
     assert cfg.comfy.required_nodes
     assert cfg.comfy.weights
     assert cfg.paths.output_dir.is_absolute()
+    assert cfg.server.host == "127.0.0.1"
+    assert cfg.server.port == 8765
+
+
+def test_server_falls_back_when_the_section_is_missing(tmp_path):
+    """[server] 可以整段不写 —— 临时仓库少抄一段，默认仍是回环的 8765。"""
+    cfg = load_config(_repo(tmp_path, DEFAULT))
+
+    assert cfg.server.host == "127.0.0.1"
+    assert cfg.server.port == 8765
+
+
+def test_server_overrides_replace_only_what_was_given(tmp_path):
+    """命令行给哪个盖哪个；地址只由 ServerConfig 拼、只拼一处。"""
+    repo = _repo(tmp_path, DEFAULT, '[server]\nhost = "0.0.0.0"\nport = 9000\n')
+    cfg = load_config(repo)
+
+    assert cfg.server.address == "http://0.0.0.0:9000"
+    assert cfg.server.overridden(port=9100).address == "http://0.0.0.0:9100"
+    assert cfg.server.overridden(host="127.0.0.1").address == "http://127.0.0.1:9000"

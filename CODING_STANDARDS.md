@@ -82,7 +82,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 | `lab/registry.py` `write_entry(..., library: bool = False)` | Primitive Obsession，该换成枚举 | 两本账形状完全相同，只有抬头那一句不同。为两个取值引入枚举，读代码时要多跳一次才知道 `library=True` 是什么意思。一个 bool 恰好说完了这件事。 |
 | `entry_for_gen` / `entry_from_base` 六个同名关键字 | Data Clumps，该抽参数对象 | 同名不等于同一件事：`spec` 那一串只有出片站有，去背与加字是从上一条借的。真正共用的结构是 `Entry` 本身，已经在共用。抽一个中间对象只会多一层搬运。 |
 | `"未知"` 三处（`recording.UNKNOWN_VERSION`、`doctor.UNKNOWN_VERSION`、`comfy.version()` 里的字面量） | 重复常量 | 三处是三个依赖方向：`comfy.py` 是最底层，不 import 上层（方向反了会成环）；`doctor.py` 是只读体检，不该为一句文案拖进记账层。**新增第四处之前先看看能不能复用** —— 这条留的是余地，不是许可证。 |
-| `entry_id` 之外还有几处 `str()` 兜底 | 默认值散落 | 读账时缺字段按默认值走（`seed` 缺了是 0），这是账本向后兼容的代价，不是疏漏。硬要在 `from_json` 一处做，就得给每个字段声明默认值，等于抄一遍 `Entry` 的定义。 |
+| `entry_id` 之外还有几处 `str()` 兜底 | 默认值散落 | 读账时缺字段按默认值走（`seed` 缺了是 0），这是账本向后兼容的代价，不是疏漏。硬要在 `from_json` 一处做，就得给每个字段声明默认值，等于抄一遍 `Entry` 的定义。同一种账：[server] 缺段时 `lab/config.py` 里那两个默认值（`127.0.0.1`、`8765`）与 `config/default.toml` 是同一份东西的第二处 —— **留着是因为八个测试 fixture 的 TOML 里都没有 `[server]`**，改用 `_require` 会全红。再加第三处之前先回来看这一条。 |
 | tests 没有 `conftest.py`，`_cfg` 在四个文件各一份 | 测试公共设施缺失 | 那几份 fixture 会随票改形状（这一版加 `requested_*`，下一版可能加别的），合并成一个共用版本会让每次改动都牵动全部文件。等到第三份完全一样、且连续两票都没动过，再合。 |
 
 **这条要反过来守**：新写测试**不要**再用 `Entry(**{**base.__dict__, **overrides})` 造变体 ——
@@ -111,5 +111,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
   是手写的替身，签名漂了只有类型检查拦得住；`scripts/check.sh` 调 `mypy` 时不带目录参数，
   查哪些文件由 `pyproject.toml` 一个地方说了算。`ruff` 也一样不带路径（不带 = 扫整个仓库，
   `scripts/` 在内）—— 写死 `check lab tests` 的那几年，`scripts/check_docs.py` 自己就没人查。
-- 三方依赖只有 `Pillow`。往 `lab/` 里加依赖之前先想：这条能不能用标准库解决（`lab/naming.py`、
-  `lab/paths.py`、`lab/registry.py` 都是零依赖的，是有意的 —— 它们被每一层 import）。
+- 三方依赖只有这几样：`Pillow`（读图与后处理），`FastAPI` / `uvicorn` / `Jinja2`（本地界面）。
+  界面那一套只在 `lab/web.py` 与 `lab/cli.py` 的 `_run_serve` 里 import —— `lab doctor` 与出片
+  链路仍然是标准库 + Pillow，这条不能破。往 `lab/` 里再加依赖之前先想：这条能不能用标准库解决
+  （`lab/naming.py`、`lab/paths.py`、`lab/registry.py` 都是零依赖的，是有意的 —— 它们被每一层 import）。

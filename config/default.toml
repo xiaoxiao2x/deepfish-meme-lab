@@ -79,6 +79,7 @@ stroke_color = "#FFFFFF"
 fill = "#1B1B1B"
 
 [server]
-# GUI（M5 阶段）
+# 本地界面（lab serve）听在哪。默认只绑回环：这东西没有登录，别往局域网里放。
+# 命令行 --host / --port 能临时盖掉；本机的实际值写进不进 git 的 local.toml。
 host = "127.0.0.1"
 port = 8765

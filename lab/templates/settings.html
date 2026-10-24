@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>{{ page.title }}</h2>
+  <p>眼下这些值来自配置文件，改还是改 <code>config/local.toml</code>；页面上能改是 M5.5 的事。</p>
+  <dl>
+    <dt>引擎</dt><dd>{{ engine_endpoint }}</dd>
+    <dt>仓库</dt><dd>{{ repo_root }}</dd>
+  </dl>
+</section>
+<section class="placeholder">可改的设置项（M5.5）</section>
+{% endblock %}

@@ -9,6 +9,7 @@
                                   给贴纸印一句台词，同目录同序号落成 .captioned.png
     python -m lab keep <图片>     把这张定稿搬进配方库（data/registry.json）
     python -m lab gallery         列出配方库里留了什么
+    python -m lab serve           起本地界面：浏览器打开四个页面
     python -m lab stub            起一个假引擎（无显卡也能端到端调试）
 
 任何子命令都能加 `--repo-root <目录>`（或设环境变量 `LAB_REPO_ROOT`）把工作台钉在
@@ -602,6 +603,17 @@ def _run_stub(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve(config: Config, args: argparse.Namespace) -> int:
+    """起本地界面，一直服务到 Ctrl-C。
+
+    FastAPI 与 uvicorn 只在这条路上 import —— 别的子命令不该为界面买单
+    （顶层只留标准库 + doctor，见文件头那条约定）。
+    """
+    from .web import serve
+
+    return serve(config, host=args.host, port=args.port)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """搭出整棵命令树。
 
@@ -751,6 +763,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="回的图带透明通道 —— 调 lab sticker 时用它，不透明的图证明不了去背",
     )
 
+    serve_parser = subparsers.add_parser(
+        "serve",
+        parents=[_REPO_ROOT_OPTION],
+        help="起本地界面：浏览器打开四个页面（地址端口取 [server]，命令行给的覆盖它）",
+    )
+    serve_parser.add_argument(
+        "--host", default=None, help="监听地址（默认取 [server].host）"
+    )
+    serve_parser.add_argument(
+        "--port", type=int, default=None, help="端口（默认取 [server].port）"
+    )
+
     return parser
 
 
@@ -803,6 +827,9 @@ def main(argv: list[str] | None = None, repo_root: Path | str | None = None) -> 
 
     if args.command == "reproduce":
         return _run_reproduce(config, args)
+
+    if args.command == "serve":
+        return _run_serve(config, args)
 
     if args.command == "stub":
         return _run_stub(config, args)

@@ -18,6 +18,7 @@ __all__ = [
     "ConfigError",
     "GenerateConfig",
     "PostprocessConfig",
+    "ServerConfig",
     "WorkflowsConfig",
     "load_config",
 ]
@@ -102,10 +103,35 @@ class PostprocessConfig:
 
 
 @dataclass(frozen=True)
+class ServerConfig:
+    """本地界面监听在哪（给 lab serve 用）。
+
+    默认只绑回环地址：这东西没有登录，绑到 0.0.0.0 就等于把它挂在局域网上。
+    端口默认 8765 —— 引擎占着 8188，别撞上。
+    """
+
+    host: str
+    port: int
+
+    @property
+    def address(self) -> str:
+        """浏览器该打开的那个地址。别在别处现拼 host 与 port。"""
+        return f"http://{self.host}:{self.port}"
+
+    def overridden(self, *, host: str | None = None, port: int | None = None) -> ServerConfig:
+        """命令行给的那两个盖上来，没给的照原样。
+
+        用一次起一次：给完就有一份完整地址，避免在调用处又拼一遍 host 与 port。
+        """
+        return ServerConfig(host=host or self.host, port=port or self.port)
+
+
+@dataclass(frozen=True)
 class Config:
     repo_root: Path
     comfy: ComfyConfig
     paths: PathsConfig
+    server: ServerConfig
     generate: GenerateConfig
     workflows: WorkflowsConfig
     postprocess: PostprocessConfig
@@ -202,6 +228,14 @@ def load_config(repo_root: Path | str) -> Config:
         sticker=str(workflows_raw.get("sticker") or ""),
     )
 
+    # 界面的地址可以不给：[server] 那一段是空的也照样起得来（用这两个默认值）。
+    # 与 postprocess 同一种写法 —— 缺哪一栏就用哪一栏的默认，不必在 local.toml 里抄一遍。
+    server_raw = data.get("server") or {}
+    server = ServerConfig(
+        host=str(server_raw.get("host") or "127.0.0.1"),
+        port=int(server_raw.get("port", 8765)),
+    )
+
     postprocess_raw = data.get("postprocess") or {}
     font_value = postprocess_raw.get("font") or ""
     postprocess = PostprocessConfig(
@@ -217,6 +251,7 @@ def load_config(repo_root: Path | str) -> Config:
         repo_root=root,
         comfy=comfy,
         paths=paths,
+        server=server,
         generate=generate,
         workflows=workflows,
         postprocess=postprocess,

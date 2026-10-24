@@ -6,8 +6,14 @@ name = "deepfish-meme-lab"
 version = "0.1.0"
 description = "鱼片加工厂 · 本地鲸鱼娘梗图/表情包生成工作台"
 requires-python = ">=3.11"  # tomllib 进标准库的版本
-# 唯一的三方依赖：体检（lab doctor）只碰标准库，但素材索引要读图。
-dependencies = ["Pillow>=12"]
+# 三方依赖就这些：素材索引要读图（Pillow），本地界面要一个 Web 框架与页面库。
+# `lab doctor` 与出片链路仍然是标准库 + Pillow —— 界面那一套只在 lab/web.py 里 import。
+dependencies = [
+    "Pillow>=12",
+    "fastapi>=0.162",
+    "uvicorn>=0.54",
+    "jinja2>=3.1",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

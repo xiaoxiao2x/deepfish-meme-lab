@@ -33,8 +33,14 @@ jobs:
           # 工具版本钉住：门禁的规则集写在 pyproject.toml 里，但规则**默认值**
           # 随版本漂 —— 不钉版本，升级一次 ruff 就可能换一套标准。
           # 这几个数抄自 README「本次验证的版本」，改的时候两处一起改。
+          #
+          # 上面那几件是工作台自己要用的（界面那套只在 lab/web.py 里 import），
+          # 跟着 pyproject.toml 的下界走、不钉具体版本；下面三件是门禁工具，必须钉。
           python -m pip install \
             "Pillow>=12" \
+            "fastapi>=0.162" \
+            "uvicorn>=0.54" \
+            "jinja2>=3.1" \
             pytest==9.1.1 \
             ruff==0.17.1 \
             mypy==2.4.0

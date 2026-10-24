@@ -129,8 +129,11 @@ OFF_TREE = {
 }
 
 #: 扫哪些：工作台自己的话。不扫 docs/（见 docstring），不扫 config/local.toml（本机文件）。
+#: 页面与样式也算 —— 那是用户直接在浏览器上看见的字（M5 起长出来的那一层）。
 SCANNED_GLOBS = (
     "lab/**/*.py",
+    "lab/**/*.html",
+    "lab/**/*.css",
     "tests/**/*.py",
     "scripts/**/*.py",
     "scripts/**/*.sh",
