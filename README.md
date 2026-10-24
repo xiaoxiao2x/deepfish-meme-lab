@@ -10,7 +10,7 @@
 
 **实现中** —— 设计与路线已定稿；第一阶段（M1–M4）已收口（规格 [#1](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/1)），M5（本地界面）在做（规格 [#15](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)，实施 [#16–#20](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)）。
 
-M1 环境补齐、M2 出图管线、M3 的去背与加字、M4 的两本账都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。每次落盘都顺手在当天记一笔（`output/<日期>/registry.local.json`，含废图，不进 git）；挑中的那张用 `python -m lab keep <图片>` 连种子和参数一起搬进配方库 `data/registry.json`（进 git），`python -m lab gallery` 看库里有什么。`python -m lab reproduce fish-001` 拿库里那条配方再跑一次，当场比出「逐像素一致 / 不一样 / 没得比」。M3 还剩规格导出。第五个里程碑（M5）从出片台开始：`python3 -m lab serve` 已经能起本地界面，四个页面（出片台 / 素材库 / 成品库 / 设置）的导航通了（规格 [票 #15](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)，实施 #16–#20）。
+M1 环境补齐、M2 出图管线、M3 的去背与加字、M4 的两本账都已跑通：`python -m lab make --prompt "..." --count 4` 会真的调用本地 ComfyUI 出图，落到 `output/<日期>/fish-001.orig.png`，终端打印每张的路径与 seed；带 `--init-image` 时换成另一张模板做底图复用，把形象钉在原来那张图上；`python -m lab sticker <图片>` 把一张图去背成透明底贴纸（沿用原图序号，落在原图旁边）；`python -m lab caption <贴纸> --text "你好呀"` 再给它印一句台词，出自带白描边的带字成图。每次落盘都顺手在当天记一笔（`output/<日期>/registry.local.json`，含废图，不进 git）；挑中的那张用 `python -m lab keep <图片>` 连种子和参数一起搬进配方库 `data/registry.json`（进 git），`python -m lab gallery` 看库里有什么。`python -m lab reproduce fish-001` 拿库里那条配方再跑一次，当场比出「逐像素一致 / 不一样 / 没得比」。M3 还剩规格导出。第五个里程碑（M5）从出片台开始：`python3 -m lab serve` 起本地界面，四个页面（出片台 / 素材库 / 成品库 / 设置）的导航通了；出片台（M5.2）已经能干活 —— 填台词出片、逐张看着进度出来、卡片上直接去背与保留，走的还是命令行那套管线（规格 [票 #15](https://github.com/xiaoxiao2x/deepfish-meme-lab/issues/15)，实施 #16–#20）。
 
 ## 跑起来
 
@@ -86,7 +86,9 @@ python3 -m lab serve --port 8799   # 换端口；地址与端口也可以写进 
 界面跟命令行在同一个进程里，用的是同一套 `lab/`；页面是现成的 HTML 与 CSS，随包发，**没有构建步骤**
 （不用 npm，仓库里也不会长出 `node_modules`），改完刷新浏览器就看见。
 
-眼下四个页面还是骨架：出片台只有空壳，参数面板与逐张出片（SSE 推进度）在 M5.2 接上。
+出片台（M5.2）已经能干活：左边填台词与参数（张数、种子；拖一张图进来当底图时会多出重绘强度滑块），
+右边逐张出片，卡片上能直接去背、照这张重跑、保留进配方库。进度由服务自己推给你（SSE），浏览器不轮询。
+素材库、成品库、设置这三页还是骨架，分别在 M5.3–M5.5 接上。
 
 ## 一份临时仓库
 

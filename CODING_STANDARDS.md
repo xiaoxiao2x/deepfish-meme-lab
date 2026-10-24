@@ -111,7 +111,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
   是手写的替身，签名漂了只有类型检查拦得住；`scripts/check.sh` 调 `mypy` 时不带目录参数，
   查哪些文件由 `pyproject.toml` 一个地方说了算。`ruff` 也一样不带路径（不带 = 扫整个仓库，
   `scripts/` 在内）—— 写死 `check lab tests` 的那几年，`scripts/check_docs.py` 自己就没人查。
-- 三方依赖只有这几样：`Pillow`（读图与后处理），`FastAPI` / `uvicorn` / `Jinja2`（本地界面）。
+- 三方依赖只有这几样：`Pillow`（读图与后处理），`FastAPI` / `uvicorn` / `Jinja2`（本地界面），`pydantic`（表单类型，随 FastAPI 一起来，仍然在 pyproject 里写明）。
   界面那一套只在 `lab/web.py` 与 `lab/cli.py` 的 `_run_serve` 里 import —— `lab doctor` 与出片
   链路仍然是标准库 + Pillow，这条不能破。往 `lab/` 里再加依赖之前先想：这条能不能用标准库解决
   （`lab/naming.py`、`lab/paths.py`、`lab/registry.py` 都是零依赖的，是有意的 —— 它们被每一层 import）。

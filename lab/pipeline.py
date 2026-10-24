@@ -43,17 +43,25 @@ __all__ = [
     "MadeImage",
     "MadeImageSource",
     "Progress",
+    "PacedProgress",
     "SilentProgress",
     "make",
     "move_out",
     "one_image",
     "random_seed",
+    "spec_for",
     "upload_name",
 ]
 
 #: ComfyUI 的 noise_seed 是 64 位，但超过 2^32 的值在部分节点上会被截；
 #: 卡在 32 位整数范围内最省心，也够随机。
 MAX_SEED = 2**32 - 1
+
+#: 进度说话的节奏：前 3 秒闭嘴，之后每 2 秒一句。
+#: 引擎是自己每两秒轮询一次的，把它每次都翻出来只是噪声 ——
+#: 命令行与页面都按这个节奏说，所以这份只剩一处。
+PROGRESS_QUIET_UNTIL = 3.0
+PROGRESS_REFRESH_EVERY = 2.0
 
 
 @runtime_checkable
@@ -78,6 +86,45 @@ class SilentProgress:
 
     def done(self, index: int, total: int, path: Path, seed: int) -> None:
         pass
+
+
+class PacedProgress:
+    """按节奏说话的进度：前 QUIET_UNTIL 秒闭嘴，之后每 REFRESH_EVERY 秒一句。
+
+    **什么时候说**是同一件事（命令行与页面都照这个节奏），**怎么说**不一样：
+    命令行印一行字，页面推一条事件。所以节奏留在这儿，三个 say_* 交给子类。
+
+    两条刻意的克制：不刷屏 —— 一张图两秒半，每张都报"已等 0.5 秒"会把有用的
+    路径和种子顶出屏幕；也不假装知道步数 —— 轮询只拿得到"等了多久"，
+    真实步数要订阅引擎的 WebSocket progress 消息（见 docs/design.md）。
+    """
+
+    def __init__(self) -> None:
+        self._last = 0.0
+
+    def start(self, index: int, total: int, seed: int) -> None:
+        self._last = 0.0
+        self.say_start(index, total, seed)
+
+    def waiting(self, index: int, total: int, elapsed: float) -> None:
+        if elapsed < PROGRESS_QUIET_UNTIL:
+            return
+        if elapsed - self._last < PROGRESS_REFRESH_EVERY:
+            return
+        self._last = elapsed
+        self.say_waiting(index, total, elapsed)
+
+    def done(self, index: int, total: int, path: Path, seed: int) -> None:
+        self.say_done(index, total, path, seed)
+
+    def say_start(self, index: int, total: int, seed: int) -> None:
+        raise NotImplementedError
+
+    def say_waiting(self, index: int, total: int, elapsed: float) -> None:
+        raise NotImplementedError
+
+    def say_done(self, index: int, total: int, path: Path, seed: int) -> None:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -114,6 +161,46 @@ class MadeImage:
 def random_seed() -> int:
     """留空时的随机种子。用 random 而不是 secrets —— 这不是密码。"""
     return random.randint(0, MAX_SEED)
+
+
+def spec_for(
+    config: Config,
+    *,
+    prompt: str,
+    negative: str | None = None,
+    seed: int | None = None,
+    steps: int | None = None,
+    cfg: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    init_image: Path | None = None,
+    denoise: float | None = None,
+) -> GenSpec:
+    """把人给的参数翻译成 GenSpec：给什么用什么，没给的落到 config 的 [generate]。
+
+    **命令行与页面都从这里过**。两条路各拼一遍 spec，迟早有一边漏掉一个新旋钮
+    （底图、重绘强度都是这么长出来的），同一句台词两处出不同的图 —— 那正是
+    #17 判据 ② 要守的东西。
+
+    提示词的骨架（prompt_prefix）也在这里接上去：它是配置的一部分，
+    谁给的提示词都要走同一道。
+    """
+    gen = config.generate
+    text = prompt.strip()
+    prefix = gen.prompt_prefix
+    return GenSpec(
+        prompt=f"{prefix}{text}" if prefix else text,
+        negative=negative if negative is not None else gen.negative,
+        # 种子留空即随机；填了就锁死，批量时从它往上递增（见 _specs）
+        seed=seed if seed is not None else random_seed(),
+        steps=steps if steps is not None else gen.steps,
+        cfg=cfg if cfg is not None else gen.cfg,
+        width=width if width is not None else gen.width,
+        height=height if height is not None else gen.height,
+        # 有底图就走另一条路：同一只形象换表情、换姿势，靠 denoise 把画面钉住
+        init_image=Path(init_image) if init_image else None,
+        denoise=denoise if denoise is not None else gen.denoise,
+    )
 
 
 def _specs(base: GenSpec, count: int, seed: int | None) -> list[GenSpec]:

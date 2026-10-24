@@ -67,3 +67,196 @@ dd { margin: 0 0 6px 5em; font-family: ui-monospace, SFMono-Regular, Menlo, mono
   border: 1px dashed var(--line);
   border-radius: 8px;
 }
+
+/* ---------- 出片台（M5.2）：左栏参数、右栏结果、底部批次动作 ---------- */
+
+/* hidden 属性天生优先级最低，碰上下面那些 display 就失灵了 —— 钉住它。
+   底图那块的滑块就是靠它藏起来的：没选底图就不该看见重绘强度。 */
+[hidden] {
+  display: none !important;
+}
+
+.engine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  margin: 16px 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.lamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #c9c4bb;
+}
+
+.lamp.on {
+  background: #3f9d63;
+}
+
+.bench {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.knobs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.knobs label,
+.base .label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.knobs textarea,
+.knobs input,
+.knobs select {
+  font: inherit;
+  color: var(--ink);
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.drop {
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.drop.over {
+  border-color: var(--accent);
+  background: #f2f6fb;
+}
+
+.drop p {
+  margin: 4px 0;
+}
+
+.base-on {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.base-knobs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slider output {
+  color: var(--ink);
+}
+
+.thumb {
+  width: 100%;
+  display: block;
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.base-on .thumb {
+  width: 96px;
+}
+
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.link {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  text-align: left;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progress {
+  margin: 0;
+  color: var(--muted);
+}
+
+.progress.bad {
+  color: #a33;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.card .line {
+  margin: 8px 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.card .acts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.card .acts button {
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+/* 去背后压在棋盘格上，一眼看得出底色是透明的 */
+.checker .thumb {
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #e6e2da 25%, transparent 25%, transparent 75%, #e6e2da 75%),
+    linear-gradient(45deg, #e6e2da 25%, transparent 25%, transparent 75%, #e6e2da 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.batch {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

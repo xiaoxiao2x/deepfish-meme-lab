@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.162",
     "uvicorn>=0.54",
     "jinja2>=3.1",
+    "pydantic>=2",  # 表单类型用它（FastAPI 自带一份，仍然在这儿写明）
 ]
 
 [tool.pytest.ini_options]

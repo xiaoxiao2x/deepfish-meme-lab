@@ -2,8 +2,62 @@
 {% block content %}
 <section class="panel">
   <h2>{{ page.title }}</h2>
-  <p>九成时间待在这一页：左边填台词与参数，右边逐张出片，挑中一张去背、留库。</p>
+  <p>九成时间待在这一页：左边填台词与参数，右边逐张出片，挑中一张去背、保留。</p>
+
+  <div class="engine" aria-live="polite">
+    <span class="lamp" id="engine-lamp"></span>
+    <span id="engine-text">正在问引擎……</span>
+    <span class="muted" id="engine-queue"></span>
+  </div>
+
+  <div class="bench">
+    <form class="knobs" id="knobs">
+      <label>台词
+        <textarea name="prompt" rows="3" placeholder="摸鱼中，勿扰"></textarea>
+      </label>
+      <label>张数
+        <select name="count">
+          {% for n in [1, 2, 4, 8] %}<option value="{{ n }}"{% if n == default_count %} selected{% endif %}>{{ n }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>种子
+        <input name="seed" inputmode="numeric" placeholder="留空就随机">
+      </label>
+
+      <div class="base">
+        <span class="label">底图</span>
+        <div class="drop" id="drop" tabindex="0" role="button">
+          <p>把一张图拖到这里，或点这里挑一张</p>
+          <p class="muted">留空就是纯文生图 —— 每次都会换一张脸</p>
+        </div>
+        <input type="file" id="base-file" accept="image/png,image/jpeg,image/webp" hidden>
+        <div class="base-on" id="base-on" hidden>
+          <img class="thumb" id="base-preview" alt="选中的底图">
+          <div class="base-knobs">
+            <p id="base-name" class="muted"></p>
+            <label class="slider">重绘强度
+              <output id="denoise-out">0.45</output>
+              <input type="range" id="denoise" min="0.05" max="0.95" step="0.05" value="0.45">
+            </label>
+            <p class="muted">0.45 才把形象钉住；高过 0.55 就换脸了</p>
+            <button type="button" class="link" id="base-clear">不用底图</button>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" id="go">出片</button>
+    </form>
+
+    <div class="results">
+      <p class="progress" id="progress" aria-live="polite">还没有开工。</p>
+      <div class="grid" id="grid"></div>
+      <div class="batch">
+        <button type="button" id="sticker-all">全部去背</button>
+        <button type="button" id="open-folder">打开文件夹</button>
+        <button type="button" id="clear">清空本次</button>
+      </div>
+    </div>
+  </div>
 </section>
-<section class="placeholder">左栏 · 参数面板（M5.2）</section>
-<section class="placeholder">右栏 · 结果网格（M5.2）</section>
+<script src="{{ url_for('static', path='app.js') }}" defer></script>
 {% endblock %}

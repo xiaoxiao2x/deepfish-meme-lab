@@ -155,6 +155,17 @@ class EngineClient:
             raise EngineError("引擎给的节点清单不像 /object_info 的回应，拿它核不了模板")
         return data
 
+    def queue(self) -> tuple[int, int]:
+        """引擎那边正跑着几件、还排着几件 —— 状态条上的队列长度就是它。
+
+        连不上会抛 EngineUnreachable；回应不像 /queue 的也如实报错：宁可状态条说
+        "看不到"，也别报一个编出来的 0。
+        """
+        data = _decode(self._request("/queue"))
+        if not isinstance(data, dict):
+            raise EngineError("引擎给的队列不像 /queue 的回应，数不出排队长度")
+        return len(data.get("queue_running") or ()), len(data.get("queue_pending") or ())
+
     def submit(self, prompt: dict, client_id: str | None = None) -> str:
         """提交一个 workflow（API 格式），拿回 prompt_id。"""
         payload: dict[str, Any] = {"prompt": prompt}

@@ -134,6 +134,7 @@ SCANNED_GLOBS = (
     "lab/**/*.py",
     "lab/**/*.html",
     "lab/**/*.css",
+    "lab/**/*.js",
     "tests/**/*.py",
     "scripts/**/*.py",
     "scripts/**/*.sh",

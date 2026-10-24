@@ -196,3 +196,19 @@ def test_lab_serve_prints_a_clickable_address():
         assert f":{port} ——" in line
     finally:
         _shutdown(proc)
+
+
+def test_the_prefixes_come_from_the_server_not_the_page(base_url):
+    """前端不自己写死 /api 与 /images：常量注进 body 的 data-*，页面照读。"""
+    status, html = _get(base_url + "/")
+    assert status == 200
+    assert 'data-api="/api"' in html
+    assert 'data-images="/images"' in html
+
+
+def test_the_batch_size_selector_starts_where_the_config_says(base_url):
+    """一次几张只有一处来源：config 的 [generate].count。"""
+    status, html = _get(base_url + "/")
+    assert status == 200
+    count = _cfg().generate.count
+    assert f'value="{count}" selected' in html

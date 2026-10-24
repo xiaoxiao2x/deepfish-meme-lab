@@ -22,6 +22,7 @@ __all__ = [
     "check_image_file",
     "check_still_image",
     "iter_image_files",
+    "output_relative",
 ]
 
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"})
@@ -43,6 +44,18 @@ def iter_image_files(root: Path) -> Iterator[Path]:
         if any(part in EXCLUDED_DIRS for part in path.relative_to(root).parts):
             continue
         yield path
+
+
+def output_relative(output_dir: Path | str, path: Path | str) -> str:
+    """把成品目录里的路径写成相对形式 —— 记录、事件、页面都按这个样子认它。
+
+    出了这个目录就只给文件名：这个函数的用处是"交回给调用方当标识"，甩一个
+    绝对路径出去等于把本机的目录结构漏给浏览器。
+    """
+    try:
+        return Path(path).relative_to(Path(output_dir)).as_posix()
+    except ValueError:
+        return Path(path).name
 
 
 def check_image_file(path: Path | str, what: str = "图片") -> Path:

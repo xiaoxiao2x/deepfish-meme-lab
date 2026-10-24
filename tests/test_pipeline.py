@@ -25,6 +25,7 @@ from lab.pipeline import (
     SilentProgress,
     make,
     random_seed,
+    spec_for,
 )
 from lab.stub import StubEngine
 from lab.workflows import GenSpec
@@ -518,6 +519,55 @@ def test_make_runs_against_the_stub_engine(tmp_path):
 
     assert [p.path.name for p in made] == ["fish-001.orig.png", "fish-002.orig.png"]
     assert all(p.path.read_bytes() == engine.image for p in made)
+
+
+# ---------- 参数翻译（票 #17） ----------
+
+
+def test_spec_for_falls_back_to_the_config_for_what_was_not_given():
+    """命令行与页面都从这一处过 —— 没给的旋钮全落在 [generate] 上。"""
+    config = load_config(REPO_ROOT)
+
+    spec_one = spec_for(config, prompt="chibi blue whale girl")
+
+    assert spec_one.prompt == f"{config.generate.prompt_prefix}chibi blue whale girl"
+    assert spec_one.negative == config.generate.negative
+    assert spec_one.steps == config.generate.steps
+    assert spec_one.cfg == config.generate.cfg
+    assert (spec_one.width, spec_one.height) == (
+        config.generate.width,
+        config.generate.height,
+    )
+    assert spec_one.denoise == config.generate.denoise
+    assert spec_one.init_image is None
+    assert 0 <= spec_one.seed <= MAX_SEED
+
+
+def test_spec_for_keeps_every_knob_it_was_given():
+    config = load_config(REPO_ROOT)
+    base = Path("/tmp/fish-001.orig.png")
+
+    given = spec_for(
+        config,
+        prompt="  说了算  ",
+        negative="blurry",
+        seed=7,
+        steps=8,
+        cfg=1.5,
+        width=512,
+        height=640,
+        init_image=base,
+        denoise=0.3,
+    )
+
+    assert given.prompt == f"{config.generate.prompt_prefix}说了算"
+    assert given.negative == "blurry"
+    assert given.seed == 7
+    assert given.steps == 8
+    assert given.cfg == 1.5
+    assert (given.width, given.height) == (512, 640)
+    assert given.init_image == base
+    assert given.denoise == 0.3
 
 
 # ---------- 命令行 ----------

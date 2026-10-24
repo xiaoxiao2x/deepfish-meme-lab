@@ -356,6 +356,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(200, self.engine.object_info)
             return
 
+        if parsed.path == "/queue":
+            self._json(200, {"queue_running": [], "queue_pending": []})
+            return
+
         if parsed.path.startswith("/history/"):
             prompt_id = parsed.path.rsplit("/", 1)[-1]
             entry = self.engine.history_entry(prompt_id)

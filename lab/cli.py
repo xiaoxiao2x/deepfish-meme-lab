@@ -20,8 +20,9 @@
 用错了（参数不对、配置读不出来）。WARN 不算通过 —— 「没配所以没查」和「查了没
 问题」是两回事，混在一起会在接线之前就把问题咽掉。
 
-**顶层只 import 标准库 + doctor**：素材索引要 Pillow，所以它是在 `_run_assets`
-里才 import 的。这样「没装 Pillow 的机器也能跑 `lab doctor`」不是一句口号。
+**顶层不 import 任何要三方库的东西**：素材索引、出片、加字都要 Pillow，所以它们是
+到用的时候才 import 的。这样「没装 Pillow 的机器也能跑 `lab doctor`」不是一句口号 ——
+留在顶层的除了标准库，只有一个不碰三方库的进度骨架（`pipeline.PacedProgress`）。
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING
 
 from .config import Config, ConfigError, load_config
 from .doctor import Status, is_ready, run_doctor
+from .pipeline import PacedProgress
 
 if TYPE_CHECKING:
     from .assets import Index
@@ -260,45 +262,29 @@ def _run_assets(
     return 1 if index.problems else 0
 
 
-class _MakeProgress:
+class _MakeProgress(PacedProgress):
     """把管线的进度说给终端听。
 
-    两条刻意的克制：
-    - **不刷屏**：等不到 3 秒不吭声，之后每 2 秒最多一行。一张图要 2.5 秒，
-      每张都打"已等 0.5 秒"只会把有用的路径和种子顶出屏幕。
-    - **不假装知道步数**：轮询只能知道"等了多久"。真实步数要订阅引擎的 WebSocket
-      progress 消息，那一层留到确实需要时再做（见 docs/design.md）。
+    什么时候说由 pipeline 的 PacedProgress 定（页面那边同一套节奏），这里只管
+    怎么说：每张一行、带路径与种子。
     """
 
-    QUIET_UNTIL = 3.0  # 秒
-    REFRESH_EVERY = 2.0  # 秒
-
     def __init__(self, stream=None) -> None:
+        super().__init__()
         self._stream = stream or sys.stdout
-        self._last = 0.0
 
-    def start(self, index: int, total: int, seed: int) -> None:
-        self._last = 0.0
+    def say_start(self, index: int, total: int, seed: int) -> None:
         print(f"[{index}/{total}] 生成中 · 种子 {seed}", file=self._stream, flush=True)
 
-    def waiting(self, index: int, total: int, elapsed: float) -> None:
-        if elapsed < self.QUIET_UNTIL:
-            return
-        if elapsed - self._last < self.REFRESH_EVERY:
-            return
-        self._last = elapsed
+    def say_waiting(self, index: int, total: int, elapsed: float) -> None:
         print(
             f"[{index}/{total}] 还在算 · 已等 {elapsed:.0f} 秒",
             file=self._stream,
             flush=True,
         )
 
-    def done(self, index: int, total: int, path: Path, seed: int) -> None:
-        print(
-            f"[{index}/{total}] {path}  seed={seed}",
-            file=self._stream,
-            flush=True,
-        )
+    def say_done(self, index: int, total: int, path: Path, seed: int) -> None:
+        print(f"[{index}/{total}] {path}  seed={seed}", file=self._stream, flush=True)
 
 
 def _run_make(config: Config, args: argparse.Namespace) -> int:
@@ -308,8 +294,8 @@ def _run_make(config: Config, args: argparse.Namespace) -> int:
     翻译成节点参数是 workflows.py 的事，所以这里只拼一个 GenSpec 就交出去。
     """
     from .comfy import EngineError
-    from .pipeline import make, random_seed
-    from .workflows import GenSpec, WorkflowError
+    from .pipeline import make, spec_for
+    from .workflows import WorkflowError
 
     prompt = (args.prompt or "").strip()
     if not prompt:
@@ -324,20 +310,18 @@ def _run_make(config: Config, args: argparse.Namespace) -> int:
         )
         return 2
 
-    gen = config.generate
-    prefix = gen.prompt_prefix
-    spec = GenSpec(
-        prompt=f"{prefix}{prompt}" if prefix else prompt,
-        negative=args.negative if args.negative is not None else gen.negative,
-        # 种子留空即随机；填了就锁死，批量时从它往上递增（见 pipeline._specs）
-        seed=args.seed if args.seed is not None else random_seed(),
-        steps=args.steps if args.steps is not None else gen.steps,
-        cfg=args.cfg if args.cfg is not None else gen.cfg,
-        width=args.width if args.width is not None else gen.width,
-        height=args.height if args.height is not None else gen.height,
+    spec = spec_for(
+        config,
+        prompt=prompt,
+        negative=args.negative,
+        seed=args.seed,
+        steps=args.steps,
+        cfg=args.cfg,
+        width=args.width,
+        height=args.height,
         # 有底图就走另一条路：同一只形象换表情、换姿势，靠 denoise 把画面钉住
         init_image=Path(args.init_image) if args.init_image else None,
-        denoise=args.denoise if args.denoise is not None else gen.denoise,
+        denoise=args.denoise,
     )
 
     # --workflow 是文件名覆盖，得让 Config 那一层也认；用 dataclasses.replace 临时换掉。
