@@ -96,7 +96,8 @@ class GenSpec:
     #: 有底图就走底图复用：同一只形象换表情、换姿势，靠它把画面钉回原来的样子。
     init_image: Path | None = None
     #: 重绘强度是底图那条路上唯一的旋钮 —— 太大丢形象，太小改不动表情。
-    denoise: float = 0.55
+    #: 0.45 是 #14 实测定下来的：同一张底图连跑五次，两两差 4.3–6.7（纯文生图两张 17.6–27.5）。
+    denoise: float = 0.45
 
 
 def load(path: Path | str) -> dict[str, Any]:

@@ -220,8 +220,8 @@ def make(
     )
     if init_image is not None and not 0.0 < float(spec.denoise) <= 1.0:
         raise ValueError(
-            f"重绘强度得在 0 和 1 之间（不含 0）：给了 {spec.denoise}。"
-            "太大丢形象，太小改不动表情，0.55 是不错的起点。"
+            f"重绘强度得在 0 和 1 之间（不含 0）：给了 {spec.denoise} —— "
+            "太大丢形象，太小改不动表情，0.45 是不错的起点。"
         )
 
     report = progress or SilentProgress()

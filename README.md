@@ -19,8 +19,8 @@ python3 -m lab doctor        # 体检：引擎、权重、节点、模板契约�
 python3 -m lab make --prompt "chibi blue whale girl, sticker style" --count 4
                             # 出一批图，落到 output/<日期>/，打印路径与 seed
 python3 -m lab make --prompt "同一只鲸鱼娘，换个表情" \
-    --init-image output/<日期>/fish-001.orig.png --denoise 0.55
-                            # 底图复用：拿一张旧图当底，把形象钉住（0.55 是起点）
+    --init-image output/<日期>/fish-001.orig.png --denoise 0.45
+                            # 底图复用：拿一张旧图当底，把形象钉住（0.45 是默认，可省）
 python3 -m lab sticker output/<日期>/fish-001.orig.png
                             # 去背：出一张透明底贴纸，落在原图旁边（同名同序号）
                             # 别的图也行；用哪只去背模型写在模板的 model 字段里

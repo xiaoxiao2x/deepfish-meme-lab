@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -243,6 +244,26 @@ def test_apply_does_not_touch_the_template_it_was_given():
     )
 
     assert template[find_by_title(template, "底图")]["inputs"]["image"] == before
+
+
+def test_the_three_homes_of_the_redraw_strength_agree():
+    """重绘强度住在三处：仓库默认那份、模板节点里那份、以及 GenSpec 的缺省。
+
+    三处各自都说得通，但漂了就没人知道 —— #14 把 0.55 改成 0.45 时全靠人肉对齐。
+    谁再改一处而漏了另外两处，这里当场响。
+
+    钉的是**仓库默认**（config/default.toml）那一份：本地 config/local.toml
+    把 [generate].denoise 调成别的值是有意为之，不该被这里当成漂了。
+    """
+    from lab.workflows import TITLE_DENOISE
+
+    default_toml = (REPO_ROOT / "config" / "default.toml").read_text(encoding="utf-8")
+    in_config = tomllib.loads(default_toml)["generate"]["denoise"]
+    template = load(IMG2IMG)
+    in_template = template[find_by_title(template, TITLE_DENOISE)]["inputs"]["denoise"]
+
+    assert _spec().denoise == in_config
+    assert _spec().denoise == in_template
 
 
 # ---------- 去背模板（票 #9） ----------

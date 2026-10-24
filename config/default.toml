@@ -61,7 +61,7 @@ steps = 50              # Klein base 版 50 步；distilled 版用 4 步
 cfg = 3.5
 width = 1024
 height = 1024
-denoise = 0.55          # 仅 img2img 生效；>0.65 丢形象，<0.35 改不动表情
+denoise = 0.45          # 仅 img2img 生效；实测 >0.55 就换脸，<0.35 改不动表情（#14）
 
 # 固定的提示词骨架：把"这一只鲸鱼娘"的角色特征固化在这里
 prompt_prefix = ""
