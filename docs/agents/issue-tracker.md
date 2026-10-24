@@ -1,6 +1,12 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues. Use the `deck_*` tools to change them; use the `gh` CLI when the content matters more than the mutation.
+
+## Which tool: `deck_*` vs `gh`
+
+- **Claim / progress / close / report**: `deck_issue_patch` (`assignees`, `progress`, `close`) and `deck_issue_report`. The receipts list what actually landed; the `## 进度` line is appended with a timestamp.
+- **Read the whole body first**: `gh issue view <n> --json body --jq .body`. `deck_issue_get` returns the head of a long body only.
+- **`deck_issue_patch`'s `body` replaces the whole body.** Rebuild it from the original — keep `## What to build`, `Parent`, `Blocked by` — and append to `## 进度` instead of dropping it. Read the issue back with `gh issue view <n>` to confirm.
 
 ## Conventions
 
