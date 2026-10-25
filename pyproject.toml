@@ -69,3 +69,10 @@ strict_equality = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
+# 不写返回类型的函数，mypy 默认只看签名、不看函数体 —— 而那正是 tests 里的常态：
+# 测试函数几乎没有一个标了 -> None。关着这个开关，那些「真跑一遍再看像素」的用例
+# 等于完全没进类型检查，而 mypy 的报告照样写着 "no issues found"，读起来像全覆盖。
+# 打开它不必给谁补注解：它要的就是「没注解也照查函数体」。
+# 代价是 Pillow 那边几个返回 Optional 的 API（getpixel / load / getcolors）要在测试里
+# 显式收窄，这是真实存在的可能失败，不是噪音。
+check_untyped_defs = true

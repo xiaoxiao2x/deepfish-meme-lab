@@ -43,6 +43,9 @@ def half(path, dark=0, size=(64, 64)):
     """
     im = Image.new("L", size)
     px = im.load()
+    # load() 的返回标成 PixelAccess | None —— 新建的图必然拿得到，这里只是让
+    # 类型检查看见这件事，而不是每写一格都带着一个可能为 None 的分支。
+    assert px is not None
     mid = size[0] // 2
     for y in range(size[1]):
         for x in range(size[0]):

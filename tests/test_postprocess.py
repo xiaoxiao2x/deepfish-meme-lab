@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -19,6 +20,17 @@ from lab.stub import StubEngine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TODAY = date(2026, 10, 24)
+
+
+def alpha_at(image: Any, xy: tuple[int, int]) -> int:
+    """那个像素的不透明度。
+
+    Pillow 把 getpixel 的返回标成 `float | tuple[int, ...] | None`（索引模式与
+    单通道图会是 float），要取第 4 位就得先收窄。这张图是 RGBA —— 收窄成四元组
+    是这个断言自己的前提，写在辅助里比每处裸 cast 一遍清楚。
+    """
+    pixel = cast(tuple[int, int, int, int], image.getpixel(xy))
+    return pixel[3]
 
 
 def png_bytes(mode: str = "RGB") -> bytes:
@@ -177,7 +189,7 @@ def test_sticker_walks_the_whole_way_against_the_stub_engine(tmp_path):
     assert made.path.exists()
     with Image.open(made.path) as image:
         assert image.mode == "RGBA"
-        assert image.getpixel((0, 0))[3] == 0
+        assert alpha_at(image, (0, 0)) == 0
 
 
 # ---------- 全量记录（票 #11） ----------
@@ -383,8 +395,8 @@ def test_cli_sticker_writes_an_rgba_png(tmp_path, capsys):
     with Image.open(produced) as image:
         assert image.mode == "RGBA"
         assert image.size == (64, 64)  # stub 回的那张
-        assert image.getpixel((0, 0))[3] == 0  # 角落还是透明的
-        assert image.getpixel((32, 32))[3] == 255  # 中间那块还在
+        assert alpha_at(image, (0, 0)) == 0  # 角落还是透明的
+        assert alpha_at(image, (32, 32)) == 255  # 中间那块还在
 
 
 def test_cli_sticker_reports_a_picture_that_is_not_there(tmp_path, capsys):

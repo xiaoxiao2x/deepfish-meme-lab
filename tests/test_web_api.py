@@ -14,11 +14,12 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 
@@ -97,13 +98,34 @@ class TickingEngine:
 
 
 class DeadEngine:
-    """连不上的引擎：状态条该说清楚怎么回事，而不是假装 0。"""
+    """连不上的引擎：状态条该说清楚怎么回事，而不是假装 0。
+
+    六个方法都实现，因为页面要的引擎是出片那四个 + 状态条那两个的并集
+    （lab.web.WebEngine）。只实现后两个的话，这个替身就不是「连不上的引擎」，
+    而是「一个出了状态条以外什么都不会的引擎」—— 那是另一件事。
+    """
+
+    DOWN = "连不上 127.0.0.1:8188"
 
     def version(self) -> str:
-        raise EngineUnreachable("连不上 127.0.0.1:8188")
+        raise EngineUnreachable(self.DOWN)
 
     def queue(self) -> tuple[int, int]:
-        raise EngineUnreachable("连不上 127.0.0.1:8188")
+        raise EngineUnreachable(self.DOWN)
+
+    def submit(self, prompt: dict, client_id: str | None = None) -> str:
+        raise EngineUnreachable(self.DOWN)
+
+    def wait(
+        self, prompt_id: str, on_poll: Callable[[int, float], None] | None = None
+    ) -> JobResult:
+        raise EngineUnreachable(self.DOWN)
+
+    def fetch(self, image: GeneratedImage, dest_dir: Path) -> Path:
+        raise EngineUnreachable(self.DOWN)
+
+    def upload_image(self, path: Path, name: str | None = None) -> str:
+        raise EngineUnreachable(self.DOWN)
 
 
 class RecordingOpener:
@@ -319,7 +341,9 @@ def test_the_page_and_the_command_line_send_the_same_prompt(tmp_path):
 
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
-    knobs = {
+    # 这个字典要原样喂给 spec_for 的具名参数，各参数类型不同（str / int / float）——
+    # 不标 Any 的话 mypy 只能把它当 dict[str, object]，展开处逐参数报一遍。
+    knobs: dict[str, Any] = {
         "prompt": "chibi blue whale girl",
         "negative": "blurry",
         "seed": 12345,

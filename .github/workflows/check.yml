@@ -41,5 +41,7 @@ jobs:
           # 这几个数抄自 README「本次验证的版本」，改的时候两处一起改。
           python -m pip install pytest==9.1.1 ruff==0.17.1 mypy==2.4.0
 
-      - name: 门禁（pytest + ruff + mypy + docs）
+      # js 那条在 runner 上会真跑（ubuntu-latest 自带 node）。装不上 node 的机器
+      # 上它打印一行跳过、不算红 —— 这只说明那台机器少了工具，不是代码有问题。
+      - name: 门禁（pytest + ruff + mypy + docs + js）
         run: ./scripts/check.sh

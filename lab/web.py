@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+import jinja2
 from fastapi import FastAPI, Request
 from fastapi.responses import (
     FileResponse,
@@ -50,7 +51,15 @@ from .pipeline import spec_for
 from .recording import resolve_recorded
 from .registry import Entry
 
-__all__ = ["PAGES", "STATIC_DIR", "TEMPLATES_DIR", "Page", "create_app", "serve"]
+__all__ = [
+    "PAGES",
+    "STATIC_DIR",
+    "TEMPLATES_DIR",
+    "Page",
+    "create_app",
+    "serve",
+    "templates_env",
+]
 
 SITE_NAME = "鱼片加工厂"
 
@@ -88,6 +97,21 @@ BASE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 #: 拖进来的底图大小上限：16 MB。4K 的 PNG 也装得下，顺手挡住把内存吃光的那种。
 BASE_MAX_BYTES = 16 * 1024 * 1024
+
+
+def templates_env() -> jinja2.Environment:
+    """页面用的 Jinja2 环境：变量写错名字要当场报，不许画成空白。
+
+    Jinja2 默认对未定义变量留空 —— 页面上就是一处莫名其妙的空缺，服务端日志里
+    什么都没有。开着 StrictUndefined，改模板时少传一个变量、拼错一个键，第一次
+    请求就抛出来（tests/test_web.py 会把五条路径都打一遍，等于每次门禁都过一遍
+    这件事）。这不是给用户看的行为差异：正常画出来的页面一个未定义变量都没有。
+    """
+    return jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
+        autoescape=jinja2.select_autoescape(),
+        undefined=jinja2.StrictUndefined,
+    )
 
 
 @dataclass(frozen=True)
@@ -464,7 +488,7 @@ def create_app(
     函数顶掉"真去弹文件夹"。生产路径都不传，走真东西。
     """
     app = FastAPI(title=SITE_NAME, docs_url=None, redoc_url=None)
-    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    templates = Jinja2Templates(env=templates_env())
     board = JobBoard()
     open_folder = opener or _open_folder
 

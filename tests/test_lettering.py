@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -336,12 +337,16 @@ def test_a_collection_without_a_chinese_face_is_refused(tmp_path):
 
     def renamed(path, size=10, index=0, **kwargs):
         face = real(str(path), size=size, index=index)
-        face.getname = lambda: (f"Test Sans {index}", "Regular")
+        # 换掉"这张脸叫什么"：挑 face 的逻辑要真的跑，但它读的是家族名。
+        # getname 是 C 扩展对象上的方法，赋值只能绕过类型检查 —— 这整个函数
+        # 本来就是 monkeypatch，替身不可能是真的 FreeTypeFont。
+        cast(Any, face).getname = lambda: (f"Test Sans {index}", "Regular")
         return face
 
     lettering._preferred_index.cache_clear()
     try:
-        ImageFont.truetype = renamed
+        # ImageFont.truetype 是模块级函数，替换它同样只能绕过类型检查。
+        cast(Any, ImageFont).truetype = renamed
         with pytest.raises(LetteringError) as caught:
             letter(
                 _cfg(tmp_path, font=collection),
@@ -351,7 +356,7 @@ def test_a_collection_without_a_chinese_face_is_refused(tmp_path):
                 today=TODAY,
             )
     finally:
-        ImageFont.truetype = real
+        cast(Any, ImageFont).truetype = real
         lettering._preferred_index.cache_clear()
 
     assert "简体中文" in str(caught.value), str(caught.value)
@@ -629,27 +634,50 @@ def test_the_painted_picture_carries_the_text_and_a_white_outline(tmp_path):
         assert opened.format == "PNG"
         assert image.size == (480, 480)
 
-    colors = {colour: count for count, colour in image.getcolors(maxcolors=1 << 20)}
+    colors = {colour: count for count, colour in _histogram(image)}
     assert (255, 255, 255, 255) in colors, "白描边不见了"
     assert (27, 27, 27, 255) in colors, "字色不是配置里那个"
-    assert image.getpixel((0, 0)) == (0, 0, 0, 0), "贴纸的透明角落被涂了"
-    assert image.getpixel((120, 120)) == (30, 120, 220, 255), "贴纸本身被改了"
+    assert _rgbas(image)[0] == (0, 0, 0, 0), "贴纸的透明角落被涂了"
+    assert _pixel(image, (120, 120)) == (30, 120, 220, 255), "贴纸本身被改了"
 
     # 台词压在下方：那片区域原本透明，现在有了墨
-    band = image.crop((0, 330, 480, 480))
-    inked = sum(1 for pixel in band.get_flattened_data() if pixel[3] > 0)
+    inked = _inked(image, (0, 330, 480, 480))
     assert inked > 5000, f"画面下沿几乎没墨：{inked} 个不透明像素"
 
 
-def _inked(image, box: tuple[int, int, int, int]) -> int:
+# Pillow 把 getcolors / getpixel / get_flattened_data 的返回都标成了带 None 的
+# 联合类型（索引模式、单通道图各有各的形状）。这几个用例拿到的都是 RGBA 图 ——
+# 收窄在这个辅助层做一次，别让每个断言都顶着一个「可能为 None」的分支。
+
+Rgba = tuple[int, int, int, int]
+
+
+def _histogram(image: Any) -> list[tuple[int, tuple[int, ...]]]:
+    """整张图的颜色直方图。"""
+    found = image.getcolors(maxcolors=1 << 20)
+    assert found is not None
+    return cast(list[tuple[int, tuple[int, ...]]], found)
+
+
+def _rgbas(image: Any) -> tuple[Rgba, ...]:
+    """整张图的像素，按行展开成一条。"""
+    return cast(tuple[Rgba, ...], image.get_flattened_data())
+
+
+def _pixel(image: Any, xy: tuple[int, int]) -> Rgba:
+    """那个像素的四元组。"""
+    return cast(Rgba, image.getpixel(xy))
+
+
+def _inked(image: Any, box: tuple[int, int, int, int]) -> int:
     """这块区域里有多少个不透明像素。"""
-    return sum(1 for pixel in image.crop(box).get_flattened_data() if pixel[3] > 0)
+    return sum(1 for pixel in _rgbas(image.crop(box)) if pixel[3] > 0)
 
 
-def _bands(image, colors) -> dict[tuple[int, int, int, int], int]:
+def _bands(image: Any, colors) -> dict[Rgba, int]:
     """整张图里这几种颜色各有多少个像素 —— 抗锯齿的中间色不算，只要纯色。"""
     counts = dict.fromkeys(colors, 0)
-    for pixel in image.get_flattened_data():
+    for pixel in _rgbas(image):
         if pixel in counts:
             counts[pixel] += 1
     return counts

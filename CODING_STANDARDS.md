@@ -83,7 +83,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 | `entry_for_gen` / `entry_from_base` 六个同名关键字 | Data Clumps，该抽参数对象 | 同名不等于同一件事：`spec` 那一串只有出片站有，去背与加字是从上一条借的。真正共用的结构是 `Entry` 本身，已经在共用。抽一个中间对象只会多一层搬运。 |
 | `"未知"` 三处（`recording.UNKNOWN_VERSION`、`doctor.UNKNOWN_VERSION`、`comfy.version()` 里的字面量） | 重复常量 | 三处是三个依赖方向：`comfy.py` 是最底层，不 import 上层（方向反了会成环）；`doctor.py` 是只读体检，不该为一句文案拖进记账层。**新增第四处之前先看看能不能复用** —— 这条留的是余地，不是许可证。 |
 | `entry_id` 之外还有几处 `str()` 兜底 | 默认值散落 | 读账时缺字段按默认值走（`seed` 缺了是 0），这是账本向后兼容的代价，不是疏漏。硬要在 `from_json` 一处做，就得给每个字段声明默认值，等于抄一遍 `Entry` 的定义。同一种账：[server] 缺段时 `lab/config.py` 里那两个默认值（`127.0.0.1`、`8765`）与 `config/default.toml` 是同一份东西的第二处 —— **留着是因为八个测试 fixture 的 TOML 里都没有 `[server]`**，改用 `_require` 会全红。再加第三处之前先回来看这一条。 |
-| tests 没有 `conftest.py`，`_cfg` 在四个文件各一份 | 测试公共设施缺失 | 那几份 fixture 会随票改形状（这一版加 `requested_*`，下一版可能加别的），合并成一个共用版本会让每次改动都牵动全部文件。等到第三份完全一样、且连续两票都没动过，再合。 |
+| tests 没有 `conftest.py`，`_cfg` 在**八个文件各一份** | 测试公共设施缺失 | 八份钉的不是同一件事：`test_naming` 只挪 `output_dir`、`test_keeping` 连 `repo_root` 一起挪、`test_jobs` 还要把 `workflows/` 拷进 tmp、`test_lettering` 顺手换掉字体、`test_postprocess` 让调用方指定输出目录、`test_web` 干脆读真仓库。合成一份就得带六个可选开关，每加一票都牵动全部文件。**这条不再是「等以后合」，是已定的现状**：新文件照抄最接近的那一份，别为复用去改别人的 fixture。 |
 
 **这条要反过来守**：新写测试**不要**再用 `Entry(**{**base.__dict__, **overrides})` 造变体 ——
 那是绕开 frozen dataclass 改字段，字段改名时会静默出错。用 `dataclasses.replace(base, seed=1)`。
@@ -93,7 +93,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 
 - **`/code-review` 的 Standards 轴**：先按这一份判。命中第一节的直接算硬违规；命中第二节的，
   只在真的有新理由时才提，并在报告里说明「CODING_STANDARDS.md 第二节说了不改，但…」。
-- **`/implement` 收尾**：`./scripts/check.sh` 四条全绿是底线，不是全部。这份文件里的规矩
+- **`/implement` 收尾**：`./scripts/check.sh` 五条全绿是底线，不是全部。这份文件里的规矩
   门禁抓不到，得人看。
 - **新增 `lab/*.py`**：`scripts/check_docs.py` 会要求你进 `docs/design.md` §4 的架构树，或者在
   它 `OFF_TREE` 那张表里写一句「为什么它不是一层」—— 两个都行，但必须做一次决定。
@@ -111,6 +111,16 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
   是手写的替身，签名漂了只有类型检查拦得住；`scripts/check.sh` 调 `mypy` 时不带目录参数，
   查哪些文件由 `pyproject.toml` 一个地方说了算。`ruff` 也一样不带路径（不带 = 扫整个仓库，
   `scripts/` 在内）—— 写死 `check lab tests` 的那几年，`scripts/check_docs.py` 自己就没人查。
+- `check_untyped_defs = true` 是**必须**开着的（`pyproject.toml` 的 `[tool.mypy]`）。默认
+  mypy 对没写返回类型的函数只看签名、跳过函数体 —— 而测试函数几乎都不写 `-> None`，等于
+  tests 全部只被「能不能 import」检一遍，报告里却写着 "no issues found"。开了之后要付出的
+  代价只是：Pillow 那几个返回 Optional 的 API（`getpixel` / `load` / `getcolors`）在测试里
+  得用 `cast` 或 `assert ... is not None` 收窄。**别为了让某个文件闭嘴去关它**。
+- 浏览器那侧**没有构建步骤**（design.md §5「不引入 Node 构建链」、§9.1「零构建步骤」），
+  也没有任何测试会执行 `lab/static/*.js`。所以门禁里单有一条 `js`：`node --check` 把三个
+  脚本各解析一遍。node 是开发机上的工具、不是项目依赖 —— 没装的机器上 `./scripts/check.sh js`
+  打印一行跳过、不算红。**`node --check` 只解析不执行，不碰 DOM 也不联网**，它补的是「语法
+  都写错」这一档，不替代人对页面行为的检查。
 - 三方依赖只有这几样：`Pillow`（读图与后处理），`FastAPI` / `uvicorn` / `Jinja2`（本地界面），`pydantic`（表单类型，随 FastAPI 一起来，仍然在 pyproject 里写明）。
   界面那一套只在 `lab/web.py` 与 `lab/cli.py` 的 `_run_serve` 里 import —— `lab doctor` 与出片
   链路仍然是标准库 + Pillow，这条不能破。往 `lab/` 里再加依赖之前先想：这条能不能用标准库解决

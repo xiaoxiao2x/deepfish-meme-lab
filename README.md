@@ -50,12 +50,16 @@ python3 -m venv .venv
 .venv/bin/pip install fastapi uvicorn jinja2 pytest Pillow ruff mypy
 ```
 
-改完代码跑门禁 —— 四条都过才算过：
+改完代码跑门禁 —— 五条都过才算过：
 
 ```bash
-./scripts/check.sh          # pytest + ruff + mypy + docs
+./scripts/check.sh          # pytest + ruff + mypy + docs + js
 ./scripts/check.sh ruff     # 只跑其中一条
 ```
+
+最后那条 `js` 用 `node --check` 把 `lab/static/*.js` 解析一遍 —— 这一侧没有构建
+步骤，也没有测试会执行它，写错一个括号时前四条照样全绿。node 不是项目依赖，没装的
+机器上打印一行跳过。
 
 `scripts/git-hooks/pre-commit` 会在提交前自动调一遍，每个克隆装一次：
 `git config core.hooksPath scripts/git-hooks`；某次确实想跳过：`SKIP_CHECKS=1 git commit ...`。

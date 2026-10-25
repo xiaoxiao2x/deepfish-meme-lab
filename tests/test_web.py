@@ -24,7 +24,7 @@ import pytest
 import uvicorn
 
 from lab.config import load_config
-from lab.web import PAGES, STATIC_DIR, TEMPLATES_DIR, create_app
+from lab.web import PAGES, STATIC_DIR, TEMPLATES_DIR, create_app, templates_env
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -212,3 +212,17 @@ def test_the_batch_size_selector_starts_where_the_config_says(base_url):
     assert status == 200
     count = _cfg().generate.count
     assert f'value="{count}" selected' in html
+
+
+def test_a_page_that_asks_for_a_variable_nobody_passed_says_so():
+    """模板环境是严格模式：写错变量名当场报，不许画成一处看不出来的空缺。
+
+    Jinja2 默认对未定义变量留空 —— 页面上就是少了一行字，服务端日志里什么都没有，
+    于是「为什么这里没显示」只能靠猜。这条守的是那个开关本身：四个页面能画出来
+    （上面那几条）说明它们没有一个未定义变量，而这一条说明真出了那个错会被喊停。
+    """
+    import jinja2
+
+    env = templates_env()
+    with pytest.raises(jinja2.UndefinedError):
+        env.from_string("{{ nobody_passed_this }}").render()
