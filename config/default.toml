@@ -64,7 +64,7 @@ height = 1024
 denoise = 0.45          # 仅 img2img 生效；实测 >0.55 就换脸，<0.35 改不动表情（#14）
 
 # 固定的提示词骨架：把"这一只鲸鱼娘"的角色特征固化在这里
-prompt_prefix = ""
+prompt_prefix = "an anime chibi mascot girl, deep indigo-blue hair with a violet gradient, big sparkling blue eyes, small blue whale-fin ornaments at both ears, a white frilled maid headdress, a black maid dress with a white apron, a slim blue whale tail behind her, sticker style, plain white background, cel-shaded, thick clean lineart, "
 negative = ""
 
 [postprocess]
