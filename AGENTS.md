@@ -19,7 +19,7 @@
 
 要出图得先有引擎，工作台不管它的生命周期（ADR-0004）：`./scripts/comfy.sh start|stop|status|log`。
 
-想眼睛验一下界面：起引擎（`./scripts/comfy.sh start`，或 `python -m lab stub` 用假引擎）再 `python -m lab serve --port 8799`，然后用 `browser-cdp` 技能连本机 Chrome 把四个页面各截一张 —— 断言只证明接口没坏，界面长什么样得看一眼。
+想眼睛验一下界面：起引擎（`./scripts/comfy.sh start`，或 `python -m lab stub` 用假引擎）再 `python -m lab serve --port 8799`，然后用 `browser-cdp` 技能把四个页面各截一张 —— 断言只证明接口没坏，界面长什么样得看一眼。技能只连不启动浏览器：本机没有带调试端口的浏览器时先自己开一个（`google-chrome --remote-debugging-port=9222`），有的话直接就能连。
 
 要比好几张图时，先拼成一张再看（`read_image` 每张都进上下文，十来张就是三万 token）。
 
