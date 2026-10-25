@@ -2,11 +2,53 @@
 {% block content %}
 <section class="panel">
   <h2>{{ page.title }}</h2>
-  <p>眼下这些值来自配置文件，改还是改 <code>config/local.toml</code>；页面上能改是 M5.5 的事。</p>
-  <dl>
-    <dt>引擎</dt><dd>{{ engine_endpoint }}</dd>
-    <dt>仓库</dt><dd>{{ repo_root }}</dd>
-  </dl>
+  <p>改了立刻生效：这里每一项都写进 config/local.toml（那个文件不进 git）。与机器无关的默认值仍在 config/default.toml 里。</p>
+
+  <form class="knobs" id="engine-form">
+    <label>引擎地址
+      <input type="text" name="address" id="engine-address" value="{{ engine_address }}" spellcheck="false" autocomplete="off">
+    </label>
+    <div class="batch">
+      <button type="submit">保存</button>
+      <button type="button" id="engine-test">测试连接</button>
+    </div>
+    <p class="progress" id="engine-say">填 host 或 host:port，比如 127.0.0.1:8188。</p>
+  </form>
+
+  <form class="knobs" id="workflow-form">
+    <label>默认工作流
+      <select name="name" id="workflow-name">
+        {% for name in workflow_names %}<option value="{{ name }}"{% if name == default_workflow %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="batch">
+      <button type="submit">保存</button>
+    </div>
+    <p class="progress" id="workflow-say">下拉里是 workflows/ 下现有的模板；选中的那个当默认。</p>
+  </form>
+
+  <form class="knobs" id="paths-form">
+    <label>素材根目录（一行一个）
+      <textarea name="asset_roots" id="asset-roots" rows="4" spellcheck="false">{{ asset_roots|join("\n") }}</textarea>
+    </label>
+    <label>输出目录
+      <input type="text" name="output_dir" id="output-dir" value="{{ output_dir }}" spellcheck="false" autocomplete="off">
+    </label>
+    <div class="batch">
+      <button type="submit">保存</button>
+    </div>
+    <p class="progress" id="paths-say">素材根目录只读引用；存完顺手重扫一遍索引，素材库就认得新目录。</p>
+  </form>
+
+  <form class="knobs" id="theme-form">
+    <label>主题
+      <select id="theme">
+        {% for value, label in theme_labels %}<option value="{{ value }}"{% if value == theme %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="progress" id="theme-say">选完立刻换过来，不用点保存。</p>
+  </form>
 </section>
-<section class="placeholder">可改的设置项（M5.5）</section>
+<script src="{{ url_for('static', path='api.js') }}" defer></script>
+<script src="{{ url_for('static', path='settings.js') }}" defer></script>
 {% endblock %}

@@ -20,12 +20,12 @@ from enum import Enum
 from pathlib import Path
 
 from . import workflows
-from .comfy import EngineClient, EngineError, EngineUnreachable
+from .comfy import EngineClient, EngineError, EngineUnreachable, show_address
 from .config import Config
 from .contract import problems as template_problems
 from .paths import iter_image_files
 
-__all__ = ["CheckResult", "Status", "has_failures", "is_ready", "run_doctor"]
+__all__ = ["CheckResult", "Status", "has_failures", "is_ready", "probe_engine", "run_doctor"]
 
 # 权重体积下限的宽容度。标称值本身是四舍五入过的，所以不能卡死；
 # 代价是「下到 96% 断掉」这种半截抓不出来 —— 要精确判断得配 sha256，那是以后的事。
@@ -76,35 +76,36 @@ def _engine_root(cfg: Config, key: str, label: str) -> tuple[Path | None, CheckR
 # ── 引擎 ──────────────────────────────────────────────────────────────
 
 
-def check_engine(cfg: Config) -> CheckResult:
-    key, label = "engine", "引擎连通"
-    where = f"{cfg.comfy.host}:{cfg.comfy.port}"
-    # 用任务级的客户端，超时换成 probe_timeout —— 体检不该等十分钟
-    client = EngineClient(
-        host=cfg.comfy.host, port=cfg.comfy.port, timeout=cfg.comfy.probe_timeout
-    )
+def probe_engine(host: str, port: int, timeout: float) -> tuple[bool, str]:
+    """问一次引擎通不通，回 (通不通, 一句人话)。
+
+    体检的那一项与设置页的「测试连接」用的是同一段探测、同一套措辞 ——
+    分两份写，第一次改说法就会分家。
+    """
+    where = show_address(host, port)
+    client = EngineClient(host=host, port=port, timeout=timeout)
 
     try:
         version = client.version()
     except EngineUnreachable:
-        return CheckResult(
-            key, label, Status.FAIL,
-            f"连不上 {where} —— 请先启动 ComfyUI"
-            f"（conda activate comfyui && python main.py）",
+        return False, (
+            f"连不上 {where} —— 请先启动 ComfyUI（conda activate comfyui && python main.py）"
         )
     except EngineError as exc:
-        return CheckResult(
-            key, label, Status.FAIL,
-            f"{where} 上有服务，但它对 /system_stats 回了：{exc}"
-            f" —— 端口也许被别的程序占着",
+        return False, (
+            f"{where} 上有服务，但它对 /system_stats 回了：{exc} —— 端口也许被别的程序占着"
         )
 
     if version == UNKNOWN_VERSION:
-        return CheckResult(
-            key, label, Status.FAIL,
-            f"{where} 上有服务，但它对 /system_stats 的回应不像 ComfyUI",
-        )
-    return CheckResult(key, label, Status.OK, f"{where} · ComfyUI {version}")
+        return False, f"{where} 上有服务，但它对 /system_stats 的回应不像 ComfyUI"
+    return True, f"{where} · ComfyUI {version}"
+
+
+def check_engine(cfg: Config) -> CheckResult:
+    key, label = "engine", "引擎连通"
+    # 超时换成 probe_timeout 的客户端 —— 体检不该等十分钟
+    ok, detail = probe_engine(cfg.comfy.host, cfg.comfy.port, cfg.comfy.probe_timeout)
+    return CheckResult(key, label, Status.OK if ok else Status.FAIL, detail)
 
 
 # ── 权重 ──────────────────────────────────────────────────────────────
@@ -200,7 +201,7 @@ def check_templates(cfg: Config, client: EngineClient | None = None) -> CheckRes
     if not names:
         return _unconfigured(key, label, "默认配置里没有模板清单")
 
-    where = f"{cfg.comfy.host}:{cfg.comfy.port}"
+    where = show_address(cfg.comfy.host, cfg.comfy.port)
     if client is None:
         # 和 check_engine 一样用探测超时：体检不该等十分钟
         client = EngineClient(

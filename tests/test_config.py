@@ -136,3 +136,17 @@ def test_server_overrides_replace_only_what_was_given(tmp_path):
     assert cfg.server.address == "http://0.0.0.0:9000"
     assert cfg.server.overridden(port=9100).address == "http://0.0.0.0:9100"
     assert cfg.server.overridden(host="127.0.0.1").address == "http://127.0.0.1:9000"
+
+
+def test_ui_theme_falls_back_to_light(tmp_path):
+    """[ui] 可以整段不写 —— 默认亮色，和 [server] 一样是宽松写法。"""
+    cfg = load_config(_repo(tmp_path, DEFAULT))
+
+    assert cfg.ui.theme == "light"
+
+
+def test_local_can_override_the_theme(tmp_path):
+    repo = _repo(tmp_path, DEFAULT, '[ui]\ntheme = "dark"\n')
+    cfg = load_config(repo)
+
+    assert cfg.ui.theme == "dark"

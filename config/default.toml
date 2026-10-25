@@ -83,3 +83,7 @@ fill = "#1B1B1B"
 # 命令行 --host / --port 能临时盖掉；本机的实际值写进不进 git 的 local.toml。
 host = "127.0.0.1"
 port = 8765
+
+[ui]
+# 界面的主题明暗：light / dark。设置页上能改，改完写进 config/local.toml。
+theme = "light"

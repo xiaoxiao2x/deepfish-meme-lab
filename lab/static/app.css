@@ -6,6 +6,32 @@
   --line: #d9d5cd;
   --muted: #8a857c;
   --accent: #2b6cb0;
+  /* 面上那几处：卡片、面板、按钮的底，加上正文与状态灯的几档色。
+     暗色只重写这一层变量，下面所有规则一行都不用动。 */
+  --surface: #fff;
+  --body: #4a463f;
+  --tint: #f2f6fb;
+  --lamp-off: #c9c4bb;
+  --lamp-on: #3f9d63;
+  --checker: #e6e2da;
+  --bad: #a33;
+}
+
+/* 暗色那一档（设置页上选，写进 config/local.toml 的 [ui] theme）。
+   只换变量：页面结构与 JS 都不必知道现在是什么主题。 */
+:root[data-theme="dark"] {
+  --ink: #e7e4de;
+  --paper: #15171a;
+  --line: #33363c;
+  --muted: #9a958c;
+  --accent: #7ab3ec;
+  --surface: #1d1f24;
+  --body: #c6c2ba;
+  --tint: #1f2b3a;
+  --lamp-off: #4a4d53;
+  --lamp-on: #4fb377;
+  --checker: #2a2d33;
+  --bad: #e58a8a;
 }
 
 * { box-sizing: border-box; }
@@ -22,7 +48,7 @@ header.top {
   align-items: baseline;
   gap: 28px;
   padding: 14px 24px;
-  background: #fff;
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 
@@ -47,13 +73,13 @@ main { max-width: 1100px; padding: 24px; }
 .panel {
   margin-bottom: 18px;
   padding: 18px 20px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 
 .panel h2 { margin: 0 0 8px; font-size: 16px; }
-.panel p { margin: 0; color: #4a463f; }
+.panel p { margin: 0; color: var(--body); }
 
 dl { margin: 12px 0 0; }
 dt { float: left; clear: left; width: 5em; color: var(--muted); }
@@ -82,7 +108,7 @@ dd { margin: 0 0 6px 5em; font-family: ui-monospace, SFMono-Regular, Menlo, mono
   align-items: center;
   padding: 10px 12px;
   margin: 16px 0;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -91,11 +117,11 @@ dd { margin: 0 0 6px 5em; font-family: ui-monospace, SFMono-Regular, Menlo, mono
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #c9c4bb;
+  background: var(--lamp-off);
 }
 
 .lamp.on {
-  background: #3f9d63;
+  background: var(--lamp-on);
 }
 
 .bench {
@@ -110,7 +136,7 @@ dd { margin: 0 0 6px 5em; font-family: ui-monospace, SFMono-Regular, Menlo, mono
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -146,7 +172,7 @@ dd { margin: 0 0 6px 5em; font-family: ui-monospace, SFMono-Regular, Menlo, mono
 
 .drop.over {
   border-color: var(--accent);
-  background: #f2f6fb;
+  background: var(--tint);
 }
 
 .drop p {
@@ -185,7 +211,7 @@ button {
   padding: 6px 12px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   cursor: pointer;
 }
@@ -214,7 +240,7 @@ button.link {
 }
 
 .progress.bad {
-  color: #a33;
+  color: var(--bad);
 }
 
 .grid {
@@ -225,7 +251,7 @@ button.link {
 
 .card {
   padding: 8px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -249,9 +275,9 @@ button.link {
 
 /* 去背后压在棋盘格上，一眼看得出底色是透明的 */
 .checker .thumb {
-  background-color: #fff;
-  background-image: linear-gradient(45deg, #e6e2da 25%, transparent 25%, transparent 75%, #e6e2da 75%),
-    linear-gradient(45deg, #e6e2da 25%, transparent 25%, transparent 75%, #e6e2da 75%);
+  background-color: var(--surface);
+  background-image: linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%),
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 8px 8px;
 }
@@ -361,7 +387,7 @@ button.link {
 .tile {
   margin: 0 0 14px;
   padding: 8px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
   break-inside: avoid;

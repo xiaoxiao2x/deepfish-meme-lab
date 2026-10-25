@@ -43,14 +43,21 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from . import pool, showcase
-from .comfy import EngineClient, EngineError, EngineLike
+from .comfy import EngineClient, EngineError, EngineLike, show_address
 from .config import Config
+from .doctor import probe_engine
 from .jobs import Job, JobBoard
 from .naming import daily_dir
 from .paths import output_relative
 from .pipeline import spec_for
 from .recording import resolve_recorded
 from .registry import Entry
+from .settings import (
+    THEME_LABELS,
+    Settings,
+    parse_address,
+    workflow_choices,
+)
 
 __all__ = [
     "ASSET_MOUNT",
@@ -257,6 +264,31 @@ class BaseRequest(BaseModel):
 
     name: str = ""
     data: str = ""
+
+
+class EngineRequest(BaseModel):
+    """设置页上那个引擎地址：`127.0.0.1` 与 `127.0.0.1:8188` 都收。"""
+
+    address: str = ""
+
+
+class WorkflowRequest(BaseModel):
+    """选中的默认工作流：得是 workflows/ 里现成的名字。"""
+
+    name: str = ""
+
+
+class PathsRequest(BaseModel):
+    """素材根目录（一行一个）与输出目录。路径原样存，相对仓库根也行。"""
+
+    asset_roots: list[str] = []
+    output_dir: str = ""
+
+
+class ThemeRequest(BaseModel):
+    """主题：light 或 dark。"""
+
+    theme: str = ""
 
 
 # ── 路径与参数 ─────────────────────────────────────────────────────────
@@ -527,6 +559,14 @@ def _from_asset(config: Config, raw: str) -> tuple[Prefill | None, str]:
 # ── 页面的上下文 ────────────────────────────────────────────────────────
 
 
+def _paths_fields(config: Config) -> dict[str, Any]:
+    """素材根目录与输出目录：摊给页面的那一份与保存后的回话共用这一处形状。"""
+    return {
+        "asset_roots": [str(root) for root in config.paths.asset_roots],
+        "output_dir": str(config.paths.output_dir),
+    }
+
+
 def _page_extra(page: Page, request: Request, config: Config) -> dict[str, Any]:
     """成品库与出片台各自多要的那几样；另外两页用不着。
 
@@ -556,6 +596,14 @@ def _page_extra(page: Page, request: Request, config: Config) -> dict[str, Any]:
         return {"fill": fill, "fill_error": error}
     if page.key == "assets":
         return _asset_page(request, config)
+    if page.key == "settings":
+        return {
+            "engine_address": show_address(config.comfy.host, config.comfy.port),
+            "workflow_names": workflow_choices(config.repo_root),
+            "default_workflow": config.workflows.default,
+            "theme_labels": THEME_LABELS,
+            **_paths_fields(config),
+        }
     return {}
 
 
@@ -602,14 +650,18 @@ def _asset_page(request: Request, config: Config) -> dict[str, Any]:
 
 
 def _page_handler(
-    page: Page, templates: Jinja2Templates, config: Config
+    page: Page, templates: Jinja2Templates, settings: Settings
 ) -> Callable[[Request], HTMLResponse]:
     """给一个页面造它的处理函数。
 
     PAGES 是唯一来源：加一页只改上面那一处，这里跟着长出来。
+
+    拿的是 Settings 而不是一份 Config：每个请求开头重新取一次当下的配置，
+    设置页改完的那一下才不用重启就看得见。
     """
 
     def handler(request: Request) -> HTMLResponse:
+        config = settings.config
         return templates.TemplateResponse(
             request,
             page.template,
@@ -618,9 +670,9 @@ def _page_handler(
                 "page": page,
                 "pages": PAGES,
                 "repo_root": str(config.repo_root),
-                "engine_endpoint": config.comfy.endpoint,
                 "images_mount": IMAGES_MOUNT,
                 "api": API_PREFIX,
+                "theme": config.ui.theme,
                 "default_count": config.generate.count,
                 "default_denoise": f"{config.generate.denoise:g}",
                 **_page_extra(page, request, config),
@@ -638,16 +690,23 @@ def create_app(
     *,
     client: WebEngine | None = None,
     opener: Callable[[Path], bool] | None = None,
+    probe: Callable[[str, int, float], tuple[bool, str]] | None = None,
 ) -> FastAPI:
     """把这个仓库装进一个 app。`lab serve` 与测试都从这儿进来。
 
-    `client` 与 `opener` 是两个可注入的接缝：测试拿假引擎顶掉真引擎、拿一个记录用的
-    函数顶掉"真去弹文件夹"。生产路径都不传，走真东西。
+    `client`、`opener` 与 `probe` 是三个可注入的接缝：测试拿假引擎顶掉真引擎、拿一个
+    记录用的函数顶掉「真去弹文件夹」、拿一个假探测顶掉「真去连引擎」。生产路径都不传，
+    走真东西。
+
+    这份 config 交给 Settings 拿着：设置页改完写回 config/local.toml，下一个请求就
+    拿到新的那一份 —— 这就是 §9.3 ④ 说的「改完即时生效」。
     """
     app = FastAPI(title=SITE_NAME, docs_url=None, redoc_url=None)
     templates = Jinja2Templates(env=templates_env())
     board = JobBoard()
+    settings = Settings(config)
     open_folder = opener or _open_folder
+    probe_now = probe or probe_engine
 
     @app.exception_handler(ValueError)
     async def _refused(_request: Request, exc: ValueError) -> JSONResponse:
@@ -662,11 +721,12 @@ def create_app(
     app.mount(STATIC_MOUNT, StaticFiles(directory=str(STATIC_DIR)), name="static")
     for page in PAGES:
         app.get(page.path, response_class=HTMLResponse, name=page.key)(
-            _page_handler(page, templates, config)
+            _page_handler(page, templates, settings)
         )
 
     @app.get(f"{IMAGES_MOUNT}/{{relative:path}}", name="images")
     def image(relative: str) -> Any:
+        config = settings.config
         try:
             path = _output_image(config, relative)
         except ValueError:
@@ -680,6 +740,7 @@ def create_app(
         账里没有、或者图被清走了，都是 404 —— 这一页自己不存图，缩不出来就是
         没有。判据要的正是这个：配方还在、图不在了，页面照旧摊得开。
         """
+        config = settings.config
         try:
             card = showcase.find_card(config, day, ident, Path(name).stem)
         except ValueError:
@@ -700,6 +761,7 @@ def create_app(
         两本账不是同一本，缺哪一半就说哪一半 —— 配方库那一半还在时，这里
         报的是"当天的记录里没有它"，而不是含混的一句找不到。
         """
+        config = settings.config
         try:
             card = showcase.find_card(config, day, ident, Path(name).stem)
             body = showcase.record_of(config, card)
@@ -714,6 +776,7 @@ def create_app(
         索引每次现读，不在这里攒缓存：索引不进仓库、重扫一次就换一本，缓存要
         跟着失效，判失效比读一遍贵。缩略图是只读的 —— 这一条路由写不了素材。
         """
+        config = settings.config
         index, _problem = pool.open_index(config)
         if index is None:
             return Response(status_code=404)
@@ -731,6 +794,7 @@ def create_app(
         文件名也得对上 —— 只有内容哈希是通行证，但地址里那半截名字若对不上，
         说明这一串本来就不是从这一页拿的，不必替它找。
         """
+        config = settings.config
         index, _problem = pool.open_index(config)
         if index is None:
             return Response(status_code=404)
@@ -744,10 +808,12 @@ def create_app(
 
     @app.get(f"{API_PREFIX}/engine", name="engine-state")
     def engine_state() -> dict[str, Any]:
+        config = settings.config
         return _engine_state(config, client)
 
     @app.get(f"{API_PREFIX}/engine/events", name="engine-events")
     def engine_events() -> StreamingResponse:
+        config = settings.config
         def stream() -> Iterator[str]:
             try:
                 while True:
@@ -763,10 +829,12 @@ def create_app(
     @app.post(f"{API_PREFIX}/base", name="base")
     def base(payload: BaseRequest) -> dict[str, Any]:
         """拖进来的底图：收下、落进今天的目录、回一个相对路径。"""
+        config = settings.config
         return {"image": _save_base(config, payload)}
 
     @app.post(f"{API_PREFIX}/make", name="make")
     def make_endpoint(payload: MakeRequest) -> dict[str, Any]:
+        config = settings.config
         count = _check_make(config, payload)
         base: Path | None = None
         if payload.init_image:
@@ -788,6 +856,7 @@ def create_app(
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}/events", name="job-events")
     def job_events(job_id: str) -> Any:
+        config = settings.config
         job = board.get(job_id)
         if job is None:
             return JSONResponse({"message": f"没有这个任务：{job_id}"}, status_code=404)
@@ -810,6 +879,7 @@ def create_app(
 
     @app.post(f"{API_PREFIX}/sticker", name="sticker")
     def sticker_endpoint(payload: ImageRequest) -> dict[str, Any]:
+        config = settings.config
         from .postprocess import sticker  # 去背要 Pillow，到用的时候再 import
 
         made = sticker(config, _output_image(config, payload.image), client=client)
@@ -821,6 +891,7 @@ def create_app(
 
     @app.post(f"{API_PREFIX}/keep", name="keep")
     def keep_endpoint(payload: ImageRequest) -> dict[str, Any]:
+        config = settings.config
         from .keeping import keep  # 量成品的宽高要 Pillow，到用的时候再 import
 
         entry, _from_today = keep(config, _output_image(config, payload.image))
@@ -828,10 +899,43 @@ def create_app(
 
     @app.post(f"{API_PREFIX}/open-folder", name="open-folder")
     def open_folder_endpoint(payload: ImageRequest) -> dict[str, Any]:
+        config = settings.config
         folder = _output_image(config, payload.image).parent
         opened = bool(open_folder(folder))
         message = "" if opened else f"没能自己弹出来 —— 手动打开这个文件夹：{folder}"
         return {"opened": opened, "folder": str(folder), "message": message}
+
+    # ── 设置：写回 config/local.toml，再把新的配置读回来 ──────────────────
+
+    @app.get(f"{API_PREFIX}/settings/probe", name="settings-probe")
+    def settings_probe(address: str = "") -> dict[str, Any]:
+        """按页面上填的地址真连一次 —— 存下去之前先知道通不通。"""
+        current = settings.config
+        host, port = parse_address(address, current.comfy.port)
+        ok, detail = probe_now(host, port, current.comfy.probe_timeout)
+        return {"ok": ok, "address": show_address(host, port), "detail": detail}
+
+    @app.post(f"{API_PREFIX}/settings/engine", name="settings-engine")
+    def settings_engine(payload: EngineRequest) -> dict[str, Any]:
+        updated = settings.set_engine(payload.address)
+        return {"address": show_address(updated.comfy.host, updated.comfy.port)}
+
+    @app.post(f"{API_PREFIX}/settings/workflow", name="settings-workflow")
+    def settings_workflow(payload: WorkflowRequest) -> dict[str, Any]:
+        updated = settings.set_workflow(payload.name)
+        return {"name": updated.workflows.default}
+
+    @app.post(f"{API_PREFIX}/settings/paths", name="settings-paths")
+    def settings_paths(payload: PathsRequest) -> dict[str, Any]:
+        updated = settings.set_paths(
+            asset_roots=payload.asset_roots, output_dir=payload.output_dir
+        )
+        return {**_paths_fields(updated), "warning": settings.rescan_assets()}
+
+    @app.post(f"{API_PREFIX}/settings/theme", name="settings-theme")
+    def settings_theme(payload: ThemeRequest) -> dict[str, Any]:
+        updated = settings.set_theme(payload.theme)
+        return {"theme": updated.ui.theme}
 
     return app
 

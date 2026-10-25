@@ -15,6 +15,7 @@ from lab.comfy import (
     EngineRejected,
     EngineTimeout,
     EngineUnreachable,
+    show_address,
 )
 from lab.stub import STUB_FILENAME, StubEngine
 
@@ -28,6 +29,11 @@ def dead_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
+
+
+def test_show_address_is_the_one_spelling_of_an_engine_address() -> None:
+    """页面上的输入框、体检的说法、报错里的指认，写法只有这一个。"""
+    assert show_address("127.0.0.1", 8188) == "127.0.0.1:8188"
 
 
 def client(

@@ -19,6 +19,7 @@ __all__ = [
     "GenerateConfig",
     "PostprocessConfig",
     "ServerConfig",
+    "UiConfig",
     "WorkflowsConfig",
     "load_config",
 ]
@@ -127,6 +128,17 @@ class ServerConfig:
 
 
 @dataclass(frozen=True)
+class UiConfig:
+    """界面自己的偏好：主题明暗。
+
+    值只当字符串存：不认识的值在页面上等于没有覆盖样式（浏览器忽略不知道的选择器），
+    比为一个键报错、让整个服务起不来好。
+    """
+
+    theme: str = "light"
+
+
+@dataclass(frozen=True)
 class Config:
     repo_root: Path
     comfy: ComfyConfig
@@ -135,6 +147,7 @@ class Config:
     generate: GenerateConfig
     workflows: WorkflowsConfig
     postprocess: PostprocessConfig
+    ui: UiConfig
 
 
 def _read_toml(path: Path) -> dict:
@@ -247,6 +260,10 @@ def load_config(repo_root: Path | str) -> Config:
         fill=str(postprocess_raw.get("fill") or "#1B1B1B"),
     )
 
+    # 界面自己的偏好同样宽松：[ui] 缺段就用默认（default.toml 里给的是 light）。
+    ui_raw = data.get("ui") or {}
+    ui = UiConfig(theme=str(ui_raw.get("theme") or "light"))
+
     return Config(
         repo_root=root,
         comfy=comfy,
@@ -255,4 +272,5 @@ def load_config(repo_root: Path | str) -> Config:
         generate=generate,
         workflows=workflows,
         postprocess=postprocess,
+        ui=ui,
     )

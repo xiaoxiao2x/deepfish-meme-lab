@@ -35,11 +35,17 @@ __all__ = [
     "EngineUnreachable",
     "GeneratedImage",
     "JobResult",
+    "show_address",
 ]
 
 DEFAULT_TIMEOUT = 30.0  # 单次 HTTP 的等待上限（秒）
 DEFAULT_POLL_INTERVAL = 0.5
 DEFAULT_MAX_POLLS = 1200  # 0.5s × 1200 ≈ 10 分钟
+
+
+def show_address(host: str, port: int) -> str:
+    """host:port 的写法。页面上的输入框、体检的说法、报错里的指认都从这儿取。"""
+    return f"{host}:{port}"
 
 
 # ---------- 错误 ----------
