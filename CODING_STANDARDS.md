@@ -97,6 +97,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 | `lab/static/app.js` 的 `useBase(relative, label, preview)` 三个裸字符串 | Primitive Obsession，该合成一个对象 | 三样都是「底图这一栏要显示什么」：值进表单、名字进 `<p>`、地址进 `<img src>`。从素材库送来时三样都有，从成品库重跑时至少值必有 —— 合成对象只是把三次赋值挪进一个括号，读调用点的人还要多跳一次。真要改，该改的是「底图有两种来路」这件事本身，别从参数形状上下手。 |
 | `lab/web.py` 的 `asset_thumb` / `asset_file` **每个请求重读一遍索引** | 性能（415 张 = 415 次读盘） | 索引不进仓库、重扫一次就换一本，缓存要跟着失效，判失效比读一遍贵。实测一页 415 格 0.05 秒、单张缩略图 0.07 秒（含现缩），够快；真慢了先量再改，别按想象加缓存。命中率高的缓存是另一个话题（`functools.lru_cache` 挂在 `open_index` 上会与"重扫即换"打架）。 |
 | tests 没有 `conftest.py`，`_cfg` 每个测试文件各一份 | 测试公共设施缺失 | 它们钉的不是同一件事：`test_naming` 只挪 `output_dir`、`test_keeping` 连 `repo_root` 一起挪、`test_jobs` 还要把 `workflows/` 拷进 tmp、`test_lettering` 顺手换掉字体、`test_postprocess` 让调用方指定输出目录、`test_web` 干脆读真仓库。合成一份就得带六个可选开关，每加一票都牵动全部文件。**这条不再是「等以后合」，是已定的现状**：新文件照抄最接近的那一份，别为复用去改别人的 fixture。同一种代价也在各处的小工具上：`run_server` / `post_json` / `get_json` / `get_html` 每个 Web 测试文件各一份，前端每页各一份 `$` 与 `say`（`settings.js` 是第三份）—— 理由同上。 |
+| `lab/web.py` 每条路由第一句 `config = settings.config` | Duplicated Code，该抽公共外壳 | 这是「改完即时生效」的代价：闭包捕获的那份 `config` 是进程启动时的快照，不每次现取，设置页改了引擎地址就只有页面刷新、出片与成品库还认旧地址。抽公共外壳要么跟 FastAPI 的依赖注入打架（每个 handler 照样得写一行），要么把十几条路由合成动态分发（读起来比重复难）。`scripts/check_contracts.py` 盯着这一行：读了 `config` 却没自己绑定的函数当场红。 |
 
 **这条要反过来守**：新写测试**不要**再用 `Entry(**{**base.__dict__, **overrides})` 造变体 ——
 那是绕开 frozen dataclass 改字段，字段改名时会静默出错。用 `dataclasses.replace(base, seed=1)`。
@@ -114,7 +115,10 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 - **动模块的 `__all__`（加、删、改名）**：`./scripts/check.sh contracts` 对账三件事 —— 清单里列的名字
   模块里真拿得出、`lab/` 内部 `from .某模块 import 某名字` 的那个名字在对方清单里、`tests/` 之间没
   互相借带下划线的私有名。以前 `lab/pipeline.py` 从 `workflows` 借 `model_name` 借了很久，清单里
-  根本没有它，改一次 `workflows` 的对外说法就会静默崩在两个下游模块。**完成判据**：contracts 打印
+  根本没有它，改一次 `workflows` 的对外说法就会静默崩在两个下游模块。同一个脚本还守另外三条隐形
+  契约：每条路由自己现取一次 `config`（说了「改完即时生效」就得做到）、引擎地址只在
+  `comfy.show_address` / `comfy.base` / `config.endpoint` / `config.address` / `stub.url` 那几处拼、
+  类方法与嵌套函数不同名（按 `def 名字` 定位的批量脚本会插错地方）。**完成判据**：contracts 打印
   「契约对得上」，且这次 diff 里 `__all__` 与真实定义同时改了。
 - **改完一处名字，先 `./scripts/check.sh ruff mypy`**。这两条加起来约 0.1 秒（实测 ruff 0.007、
   mypy 0.10），比全量测试便宜两个数量级。`showcase.picture_at` 改名漏改一处调用点，`lab/web.py`

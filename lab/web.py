@@ -734,7 +734,7 @@ def create_app(
         return FileResponse(path)
 
     @app.get(f"{THUMB_MOUNT}/{{day}}/{{ident}}/{{name}}", name="thumb")
-    def thumb(day: str, ident: str, name: str) -> Any:
+    def thumb_file(day: str, ident: str, name: str) -> Any:
         """成品库那张卡片的小图：按（日期/号/阶段.png）回账里找，现取现缩。
 
         账里没有、或者图被清走了，都是 404 —— 这一页自己不存图，缩不出来就是

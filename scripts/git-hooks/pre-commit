@@ -1,8 +1,11 @@
 #!/bin/sh
-# 提交前跑一遍门禁（scripts/check.sh）。
+# 提交前跑一遍快的那几条门禁（scripts/check.sh 的 ruff / mypy / js / docs / contracts）。
 #
 # 这个文件随仓库走，但 Git 不会自动用它 —— 每个克隆装一次：
 #   git config core.hooksPath scripts/git-hooks
+#
+# 这里不跑 pytest（全量 40 多秒）：分秒必争的场合不该卡提交，CI 会把那份补上，
+# 收尾时也自己跑一次完整的 `./scripts/check.sh`。
 #
 # 确实想跳过这次（只动文档、或急着提交）：
 #   SKIP_CHECKS=1 git commit ...
@@ -14,4 +17,4 @@ if [ "${SKIP_CHECKS:-0}" = "1" ]; then
 fi
 
 root="$(git rev-parse --show-toplevel)"
-exec "$root/scripts/check.sh"
+exec "$root/scripts/check.sh" ruff mypy js docs contracts

@@ -589,7 +589,7 @@ def _run_stub(config: Config, args: argparse.Namespace) -> int:
         port=config.comfy.port,
         mode="RGBA" if args.rgba else "RGB",
     ).start()
-    print(f"假引擎已起：http://{engine.host}:{engine.port}")
+    print(f"假引擎已起：{engine.url}")
     print("它不假装懂工作流 —— 收到什么 prompt 都收下，然后报「完成」并回一张小图。")
     print("Ctrl-C 停。")
     try:

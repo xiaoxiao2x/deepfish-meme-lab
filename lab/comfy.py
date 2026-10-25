@@ -301,7 +301,7 @@ class EngineClient:
 
     def _unreachable_message(self) -> str:
         return (
-            f"连不上 {self.host}:{self.port} —— 请先启动 ComfyUI"
+            f"连不上 {show_address(self.host, self.port)} —— 请先启动 ComfyUI"
             "（conda activate comfyui && python main.py）"
         )
 

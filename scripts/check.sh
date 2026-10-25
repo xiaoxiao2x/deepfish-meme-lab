@@ -87,7 +87,7 @@ for name in "$@"; do
         docs)   step "docs（文档与代码对账）" "$PY" scripts/check_docs.py ;;
         js)     step "js（浏览器那侧的语法）" js_gate ;;
         contracts)
-            step "contracts（__all__ 与 import 对账）" "$PY" scripts/check_contracts.py
+            step "contracts（__all__、import 与三条隐形契约）" "$PY" scripts/check_contracts.py
             ;;
         *)
             printf "不认识的门禁项：%s（可选 pytest / ruff / mypy / docs / js / contracts）\n" "$name" >&2

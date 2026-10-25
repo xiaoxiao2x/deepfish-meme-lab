@@ -13,9 +13,13 @@
 
 ## 改完代码
 
-跑 `./scripts/check.sh` —— pytest + ruff + mypy + docs（文档与代码对账）+ js（`node --check` 解析 `lab/static/*.js`，没装 node 就跳过）+ contracts（`__all__` 与 import 对账），六条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。单跑一个测试文件用 `.venv/bin/python -m pytest tests/test_x.py` —— 系统 `python` 没装 pytest，`check.sh` 自己会挑 venv。
+跑 `./scripts/check.sh` —— pytest + ruff + mypy + docs（文档与代码对账）+ js（`node --check` 解析 `lab/static/*.js`，没装 node 就跳过）+ contracts（`__all__` 与 import 对账，外加三条隐形契约：路由现取 config、引擎地址只有一处写法、类方法与嵌套函数不同名），六条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。单跑一个测试文件用 `.venv/bin/python -m pytest tests/test_x.py` —— 系统 `python` 没装 pytest，`check.sh` 自己会挑 venv。
+
+批量脚本改过文件之后，先跑便宜的那几条（约 1 秒）：`./scripts/check.sh ruff mypy js` —— 全量里 42 秒的 pytest 留给收尾。别把红留给 review：脚本插错行、名字没定义，正是 ruff 与 mypy 先响。
 
 要出图得先有引擎，工作台不管它的生命周期（ADR-0004）：`./scripts/comfy.sh start|stop|status|log`。
+
+想眼睛验一下界面：起引擎（`./scripts/comfy.sh start`，或 `python -m lab stub` 用假引擎）再 `python -m lab serve --port 8799`，然后用 `browser-cdp` 技能连本机 Chrome 把四个页面各截一张 —— 断言只证明接口没坏，界面长什么样得看一眼。
 
 要比好几张图时，先拼成一张再看（`read_image` 每张都进上下文，十来张就是三万 token）。
 
