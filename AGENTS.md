@@ -13,7 +13,7 @@
 
 ## 改完代码
 
-跑 `./scripts/check.sh` —— pytest + ruff + mypy + docs（文档与代码对账）+ js（`node --check` 解析 `lab/static/*.js`，没装 node 就跳过），五条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。单跑一个测试文件用 `.venv/bin/python -m pytest tests/test_x.py` —— 系统 `python` 没装 pytest，`check.sh` 自己会挑 venv。
+跑 `./scripts/check.sh` —— pytest + ruff + mypy + docs（文档与代码对账）+ js（`node --check` 解析 `lab/static/*.js`，没装 node 就跳过）+ contracts（`__all__` 与 import 对账），六条全过才算过（规则集与收紧项固定在 pyproject.toml 的 `[tool.ruff]` / `[tool.mypy]`，不要让它随工具版本漂）。克隆后装一次提交前钩子：`git config core.hooksPath scripts/git-hooks`（某次想跳过：`SKIP_CHECKS=1 git commit`）。单跑一个测试文件用 `.venv/bin/python -m pytest tests/test_x.py` —— 系统 `python` 没装 pytest，`check.sh` 自己会挑 venv。
 
 要出图得先有引擎，工作台不管它的生命周期（ADR-0004）：`./scripts/comfy.sh start|stop|status|log`。
 

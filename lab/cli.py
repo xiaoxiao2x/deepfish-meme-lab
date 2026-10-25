@@ -67,6 +67,9 @@ LABEL_WIDTH = 14  # 按显示宽度算，所以中英文标签都能对齐
 KIND_LABEL = {"exact": "字节一致", "perceptual": "画面近似", "suspect": "疑似同图"}
 
 
+# ── 排版的零件 ─────────────────────────────────────────────────────────
+
+
 def _display_width(text: str) -> int:
     return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
 
@@ -117,6 +120,9 @@ def _wrap(text: str, width: int) -> list[str]:
     if line:
         pieces.append(line)
     return pieces
+
+
+# ── 报表 ────────────────────────────────────────────────────────────
 
 
 def _section(
@@ -207,6 +213,9 @@ def _print_dupes(index: Index) -> None:
     _section("鱼片加工厂 · 重复素材", lines)
 
 
+# ── 素材 ────────────────────────────────────────────────────────────
+
+
 def _run_assets(
     config: Config, action: str | None, verify_readonly: bool = False
 ) -> int:
@@ -260,6 +269,9 @@ def _run_assets(
     save_index(index, index_path)
     _print_assets_report(index, index_path)
     return 1 if index.problems else 0
+
+
+# ── 出片与后处理 ────────────────────────────────────────────────────────
 
 
 class _MakeProgress(PacedProgress):
@@ -427,6 +439,8 @@ def _run_lettering(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+# ── 配方库表格 ─────────────────────────────────────────────────────────
+
 #: 配方库表格的列宽（按显示宽度算）。模型名最容易超，给最长，其余刚好够放。
 GALLERY_COLUMNS = (("号", 10), ("阶段", 9), ("模型", 26), ("种子", 11), ("留的时间", 17))
 
@@ -487,6 +501,9 @@ def _print_gallery(entries: list[Entry]) -> None:
         ),
         width=width,
     )
+
+
+# ── 剩下的几个动作 ───────────────────────────────────────────────────────
 
 
 def _run_keep(config: Config, args: argparse.Namespace) -> int:
@@ -596,6 +613,9 @@ def _run_serve(config: Config, args: argparse.Namespace) -> int:
     from .web import serve
 
     return serve(config, host=args.host, port=args.port)
+
+
+# ── 命令行骨架 ─────────────────────────────────────────────────────────
 
 
 def build_parser() -> argparse.ArgumentParser:

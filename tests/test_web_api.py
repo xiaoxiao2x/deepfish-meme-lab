@@ -164,7 +164,7 @@ def _picture(tmp_path: Path, name: str = "2026-10-23/fish-001.orig.png") -> Path
 
 
 @contextmanager
-def _serving(app) -> Iterator[str]:
+def run_server(app) -> Iterator[str]:
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
     )
@@ -184,7 +184,7 @@ def _serving(app) -> Iterator[str]:
         thread.join(timeout=15)
 
 
-def _post(url: str, payload: dict) -> tuple[int, dict]:
+def post_json(url: str, payload: dict) -> tuple[int, dict]:
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json"}
@@ -208,7 +208,7 @@ def _get(url: str) -> tuple[int, bytes]:
         return exc.code, exc.read()
 
 
-def _events(url: str, *, stop: str, limit: int = 40) -> list[dict]:
+def collect_events(url: str, *, stop: str, limit: int = 40) -> list[dict]:
     """把 SSE 读成事件列表，读到 stop 这种事件（或读到 limit 条）为止。"""
     events: list[dict] = []
     with urllib.request.urlopen(url, timeout=20) as response:
@@ -228,7 +228,7 @@ def _events(url: str, *, stop: str, limit: int = 40) -> list[dict]:
 
 def test_engine_state_says_how_the_engine_is_doing(tmp_path):
     engine = TickingEngine(running=1, pending=2)
-    with _serving(create_app(_cfg(tmp_path), client=engine)) as base:
+    with run_server(create_app(_cfg(tmp_path), client=engine)) as base:
         status, raw = _get(base + "/api/engine")
     body = json.loads(raw)
     assert status == 200
@@ -238,7 +238,7 @@ def test_engine_state_says_how_the_engine_is_doing(tmp_path):
 
 
 def test_engine_state_says_why_when_the_engine_is_down(tmp_path):
-    with _serving(create_app(_cfg(tmp_path), client=DeadEngine())) as base:
+    with run_server(create_app(_cfg(tmp_path), client=DeadEngine())) as base:
         status, raw = _get(base + "/api/engine")
     body = json.loads(raw)
     assert status == 200, "连不上引擎不是服务的错 —— 状态条要能看到原因"
@@ -248,8 +248,8 @@ def test_engine_state_says_why_when_the_engine_is_down(tmp_path):
 
 def test_engine_events_push_the_same_thing_without_the_page_asking(tmp_path):
     engine = TickingEngine(running=0, pending=3)
-    with _serving(create_app(_cfg(tmp_path), client=engine)) as base:
-        events = _events(base + "/api/engine/events", stop="engine")
+    with run_server(create_app(_cfg(tmp_path), client=engine)) as base:
+        events = collect_events(base + "/api/engine/events", stop="engine")
     assert events and events[0]["type"] == "engine"
     assert events[0]["ok"] is True
     assert events[0]["pending"] == 3
@@ -260,8 +260,8 @@ def test_engine_events_push_the_same_thing_without_the_page_asking(tmp_path):
 
 def test_make_wants_a_prompt(tmp_path):
     engine = TickingEngine()
-    with _serving(create_app(_cfg(tmp_path), client=engine)) as base:
-        status, body = _post(base + "/api/make", {"prompt": "   ", "count": 2})
+    with run_server(create_app(_cfg(tmp_path), client=engine)) as base:
+        status, body = post_json(base + "/api/make", {"prompt": "   ", "count": 2})
     assert status == 400
     assert "画点什么" in body["message"]
     assert engine.prompts == [], "话都没说清楚，不该去打扰引擎"
@@ -270,10 +270,12 @@ def test_make_wants_a_prompt(tmp_path):
 def test_make_runs_the_batch_and_tells_the_page_each_step(tmp_path):
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
-    with _serving(create_app(cfg, client=engine)) as base:
-        status, body = _post(base + "/api/make", {"prompt": "chibi blue whale girl", "count": 2})
+    with run_server(create_app(cfg, client=engine)) as base:
+        status, body = post_json(
+            base + "/api/make", {"prompt": "chibi blue whale girl", "count": 2}
+        )
         assert status == 200, body
-        events = _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+        events = collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
     kinds = [event["type"] for event in events]
     assert kinds == ["spec", "start", "done", "start", "done", "finished"], kinds
     assert events[0]["prompt"] == "chibi blue whale girl"
@@ -293,8 +295,8 @@ def test_a_job_says_which_recipe_its_pictures_came_from(tmp_path):
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
     _picture(tmp_path, "2026-10-23/fish-001.orig.png")
-    with _serving(create_app(cfg, client=engine)) as base:
-        status, body = _post(
+    with run_server(create_app(cfg, client=engine)) as base:
+        status, body = post_json(
             base + "/api/make",
             {
                 "prompt": "same girl, another mood",
@@ -304,7 +306,7 @@ def test_a_job_says_which_recipe_its_pictures_came_from(tmp_path):
             },
         )
         assert status == 200, body
-        events = _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+        events = collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
     spec = events[0]
     assert spec["type"] == "spec"
     assert spec["prompt"] == "same girl, another mood"
@@ -316,17 +318,17 @@ def test_a_batch_size_left_empty_falls_back_to_the_config(tmp_path):
     """一次几张只有一处来源：页面不说，就按 config 的 [generate].count 走。"""
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
-    with _serving(create_app(cfg, client=engine)) as base:
-        status, body = _post(base + "/api/make", {"prompt": "chibi blue whale girl"})
+    with run_server(create_app(cfg, client=engine)) as base:
+        status, body = post_json(base + "/api/make", {"prompt": "chibi blue whale girl"})
         assert status == 200, body
-        events = _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+        events = collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
     assert len(engine.prompts) == cfg.generate.count
     assert events[-1]["made"] == cfg.generate.count
     assert events[0]["type"] == "spec"
 
 
 def test_a_job_that_is_not_there_is_a_404(tmp_path):
-    with _serving(create_app(_cfg(tmp_path), client=TickingEngine())) as base:
+    with run_server(create_app(_cfg(tmp_path), client=TickingEngine())) as base:
         status, _ = _get(base + "/api/jobs/nope/events")
     assert status == 404
 
@@ -352,8 +354,8 @@ def test_the_page_and_the_command_line_send_the_same_prompt(tmp_path):
         "width": 768,
         "height": 768,
     }
-    with _serving(create_app(cfg, client=engine)) as base:
-        status, _ = _post(base + "/api/make", {**knobs, "count": 1})
+    with run_server(create_app(cfg, client=engine)) as base:
+        status, _ = post_json(base + "/api/make", {**knobs, "count": 1})
         assert status == 200
     mine = spec_for(cfg, **knobs)
     theirs = apply(load(Path(cfg.repo_root) / "workflows" / cfg.workflows.default), mine)
@@ -368,8 +370,8 @@ def test_a_base_image_is_uploaded_and_the_slider_gets_through(tmp_path):
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
     _picture(tmp_path, "2026-10-23/fish-001.orig.png")
-    with _serving(create_app(cfg, client=engine)) as base:
-        status, body = _post(
+    with run_server(create_app(cfg, client=engine)) as base:
+        status, body = post_json(
             base + "/api/make",
             {
                 "prompt": "same girl, another mood",
@@ -379,7 +381,7 @@ def test_a_base_image_is_uploaded_and_the_slider_gets_through(tmp_path):
             },
         )
         assert status == 200, body
-        _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+        collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
     assert engine.uploads == [cfg.paths.output_dir.resolve() / "2026-10-23" / "fish-001.orig.png"]
     assert engine.upload_names[0].startswith("lab-init-"), "上传名由 pipeline 统一给"
     node = engine.prompts[0][find_by_title(engine.prompts[0], TITLE_DENOISE)]
@@ -388,8 +390,8 @@ def test_a_base_image_is_uploaded_and_the_slider_gets_through(tmp_path):
 
 def test_a_base_image_from_outside_the_output_folder_is_refused(tmp_path):
     engine = TickingEngine()
-    with _serving(create_app(_cfg(tmp_path), client=engine)) as base:
-        status, body = _post(
+    with run_server(create_app(_cfg(tmp_path), client=engine)) as base:
+        status, body = post_json(
             base + "/api/make",
             {"prompt": "x", "count": 1, "init_image": "../config/default.toml"},
         )
@@ -405,7 +407,7 @@ def test_images_are_served_from_the_output_folder_only(tmp_path):
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
     picture = _picture(tmp_path, "2026-10-23/fish-001.orig.png")
-    with _serving(create_app(cfg, client=engine)) as base:
+    with run_server(create_app(cfg, client=engine)) as base:
         status, data = _get(base + "/images/2026-10-23/fish-001.orig.png")
         assert status == 200
         assert data == picture.read_bytes()
@@ -422,8 +424,8 @@ def test_keep_puts_it_in_the_recipe_book(tmp_path):
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
     _picture(tmp_path, "2026-10-23/fish-001.orig.png")
-    with _serving(create_app(cfg, client=engine)) as base:
-        status, body = _post(
+    with run_server(create_app(cfg, client=engine)) as base:
+        status, body = post_json(
             base + "/api/keep", {"image": "2026-10-23/fish-001.orig.png"}
         )
     assert status == 200, body
@@ -440,8 +442,8 @@ def test_sticker_makes_a_transparent_copy_right_here(tmp_path):
         from lab.comfy import EngineClient
 
         client = EngineClient(stub.host, stub.port, poll_interval=0.01, max_polls=50)
-        with _serving(create_app(cfg, client=client)) as base:
-            status, body = _post(
+        with run_server(create_app(cfg, client=client)) as base:
+            status, body = post_json(
                 base + "/api/sticker", {"image": "2026-10-23/fish-001.orig.png"}
             )
     assert status == 200, body
@@ -458,8 +460,8 @@ def test_opening_the_folder_says_whether_it_worked(tmp_path):
     cfg = _cfg(tmp_path)
     _picture(tmp_path, "2026-10-23/fish-001.orig.png")
     opener = RecordingOpener()
-    with _serving(create_app(cfg, client=engine, opener=opener)) as base:
-        status, body = _post(
+    with run_server(create_app(cfg, client=engine, opener=opener)) as base:
+        status, body = post_json(
             base + "/api/open-folder", {"image": "2026-10-23/fish-001.orig.png"}
         )
     assert status == 200, body
@@ -471,8 +473,8 @@ def test_a_folder_that_cannot_be_opened_is_reported_not_hidden(tmp_path):
     engine = TickingEngine()
     cfg = _cfg(tmp_path)
     _picture(tmp_path, "2026-10-23/fish-001.orig.png")
-    with _serving(create_app(cfg, client=engine, opener=RecordingOpener(ok=False))) as base:
-        status, body = _post(
+    with run_server(create_app(cfg, client=engine, opener=RecordingOpener(ok=False))) as base:
+        status, body = post_json(
             base + "/api/open-folder", {"image": "2026-10-23/fish-001.orig.png"}
         )
     assert status == 200
@@ -485,14 +487,14 @@ def test_a_folder_that_cannot_be_opened_is_reported_not_hidden(tmp_path):
 
 def _drop(base, name, blob):
     payload = {"name": name, "data": base64.b64encode(blob).decode("ascii")}
-    return _post(base + "/api/base", payload)
+    return post_json(base + "/api/base", payload)
 
 
 def test_a_dropped_picture_lands_under_output(tmp_path):
     """拖进来的底图先收进 output，回一个相对路径 —— 页面拿它当底图用。"""
     cfg = _cfg(tmp_path)
     blob = png_bytes()
-    with _serving(create_app(cfg, client=TickingEngine())) as base:
+    with run_server(create_app(cfg, client=TickingEngine())) as base:
         status, body = _drop(base, "我的猫.png", blob)
     assert status == 200, body
     assert body["image"].endswith(".png")
@@ -503,9 +505,9 @@ def test_the_dropped_picture_can_serve_as_the_base_image(tmp_path):
     """收下来的那张立刻能当底图 —— 拖入这条路要闭环。"""
     cfg = _cfg(tmp_path)
     engine = TickingEngine()
-    with _serving(create_app(cfg, client=engine)) as base:
+    with run_server(create_app(cfg, client=engine)) as base:
         _, dropped = _drop(base, "cat.png", png_bytes())
-        status, _ = _post(
+        status, _ = post_json(
             base + "/api/make",
             {
                 "prompt": "chibi blue whale girl",
@@ -521,7 +523,7 @@ def test_the_dropped_picture_can_serve_as_the_base_image(tmp_path):
 
 def test_dropping_something_that_is_not_a_picture_is_refused(tmp_path):
     cfg = _cfg(tmp_path)
-    with _serving(create_app(cfg, client=TickingEngine())) as base:
+    with run_server(create_app(cfg, client=TickingEngine())) as base:
         status, body = _drop(base, "note.txt", b"hello")
     assert status == 400
     assert "底图" in body["message"]
@@ -529,7 +531,7 @@ def test_dropping_something_that_is_not_a_picture_is_refused(tmp_path):
 
 def test_dropping_a_payload_that_cannot_be_read_is_refused(tmp_path):
     cfg = _cfg(tmp_path)
-    with _serving(create_app(cfg, client=TickingEngine())) as base:
-        status, body = _post(base + "/api/base", {"name": "cat.png", "data": "不是 base64"})
+    with run_server(create_app(cfg, client=TickingEngine())) as base:
+        status, body = post_json(base + "/api/base", {"name": "cat.png", "data": "不是 base64"})
     assert status == 400
     assert body["message"]

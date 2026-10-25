@@ -43,5 +43,5 @@ jobs:
 
       # js 那条在 runner 上会真跑（ubuntu-latest 自带 node）。装不上 node 的机器
       # 上它打印一行跳过、不算红 —— 这只说明那台机器少了工具，不是代码有问题。
-      - name: 门禁（pytest + ruff + mypy + docs + js）
+      - name: 门禁（pytest + ruff + mypy + docs + js + contracts）
         run: ./scripts/check.sh

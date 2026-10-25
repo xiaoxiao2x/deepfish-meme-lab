@@ -63,6 +63,9 @@ __all__ = [
     "templates_env",
 ]
 
+
+# ── 常量与模板环境 ───────────────────────────────────────────────────────
+
 SITE_NAME = "鱼片加工厂"
 
 #: 页面本身（HTML 与 CSS）跟代码放一起：它们是这个包的一部分，不是仓库外的另一摊资源。
@@ -123,6 +126,9 @@ def templates_env() -> jinja2.Environment:
     )
 
 
+# ── 页面目录 ──────────────────────────────────────────────────────────
+
+
 @dataclass(frozen=True)
 class Page:
     """一个页面：路由、导航上叫什么、用哪份 Jinja2 页面。"""
@@ -146,6 +152,9 @@ PAGES: tuple[Page, ...] = (
 #: 出片台那条路。「用同参数重跑」从这里跳回去 —— 导航那个循环里已经有它了，
 #: 成品库只是要一个能拼查询串的地址，不必再从 PAGES 里现找一遍。
 GENERATE_PATH = next(page for page in PAGES if page.key == "generate").path
+
+
+# ── 成品库的视图 ────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -198,6 +207,9 @@ def _view(config: Config, card: showcase.Card) -> CardView:
     )
 
 
+# ── 接口的形状 ─────────────────────────────────────────────────────────
+
+
 class WebEngine(EngineLike, Protocol):
     """页面要用的引擎：能出片（EngineLike 那四个），还能报个版本、数一下队列长度。
 
@@ -245,6 +257,9 @@ class BaseRequest(BaseModel):
 
     name: str = ""
     data: str = ""
+
+
+# ── 路径与参数 ─────────────────────────────────────────────────────────
 
 
 def _output_image(config: Config, raw: str) -> Path:
@@ -391,6 +406,9 @@ def _save_base(config: Config, payload: BaseRequest) -> str:
     return output_relative(config.paths.output_dir, target)
 
 
+# ── 服务端的小件 ────────────────────────────────────────────────────────
+
+
 def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -404,6 +422,9 @@ def _open_folder(folder: Path) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return done.returncode == 0
+
+
+# ── 出片台的预填 ────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -501,6 +522,9 @@ def _from_asset(config: Config, raw: str) -> tuple[Prefill | None, str]:
         ),
         "",
     )
+
+
+# ── 页面的上下文 ────────────────────────────────────────────────────────
 
 
 def _page_extra(page: Page, request: Request, config: Config) -> dict[str, Any]:
@@ -604,6 +628,9 @@ def _page_handler(
         )
 
     return handler
+
+
+# ── 应用与路由 ─────────────────────────────────────────────────────────
 
 
 def create_app(
@@ -807,6 +834,9 @@ def create_app(
         return {"opened": opened, "folder": str(folder), "message": message}
 
     return app
+
+
+# ── 起服务 ───────────────────────────────────────────────────────────
 
 
 def serve(config: Config, *, host: str | None = None, port: int | None = None) -> int:

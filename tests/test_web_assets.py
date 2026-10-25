@@ -294,11 +294,11 @@ def _http(cfg):
     from contextlib import contextmanager
 
     from lab.web import create_app
-    from tests.test_web_api import _serving
+    from tests.test_web_api import run_server
 
     @contextmanager
     def run():
-        with _serving(create_app(cfg)) as base:
+        with run_server(create_app(cfg)) as base:
             yield base
 
     return run()
@@ -524,14 +524,14 @@ def _bench(cfg, engine):
     from contextlib import contextmanager
 
     from lab.web import create_app
-    from tests.test_web_api import _serving
+    from tests.test_web_api import run_server
 
     # 真出片要读工作流模板：配置把仓库根挪到了 tmp_path，得先把模板搬过去。
     shutil.copytree(REPO_ROOT / "workflows", cfg.repo_root / "workflows", dirs_exist_ok=True)
 
     @contextmanager
     def run():
-        with _serving(create_app(cfg, client=engine)) as base:
+        with run_server(create_app(cfg, client=engine)) as base:
             yield base
 
     return run()
@@ -543,7 +543,7 @@ def test_a_tile_sent_to_the_bench_can_actually_be_the_base_image(tmp_path):
     素材不在 output 里，/images 读不到它，引擎的 LoadImage 更读不到；所以那一串
     只是「待落地的地址」，真出片时得先有一份在 output 里的副本。素材本身仍然只读。
     """
-    from tests.test_web_api import TickingEngine, _events, _post
+    from tests.test_web_api import TickingEngine, collect_events, post_json
 
     engine = TickingEngine()
     cfg, index = _pooled(tmp_path, stills=2)
@@ -551,7 +551,7 @@ def test_a_tile_sent_to_the_bench_can_actually_be_the_base_image(tmp_path):
     original = (tile.asset.path.read_bytes(), tile.asset.path.stat().st_mtime_ns)
 
     with _bench(cfg, engine) as base:
-        status, body = _post(
+        status, body = post_json(
             base + "/api/make",
             {
                 "prompt": "same fish, another mood",
@@ -561,7 +561,7 @@ def test_a_tile_sent_to_the_bench_can_actually_be_the_base_image(tmp_path):
             },
         )
         assert status == 200, body
-        _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+        collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
 
     assert status == 200, body
     assert engine.uploads, "底图得先交给引擎"
@@ -575,7 +575,7 @@ def test_a_tile_sent_to_the_bench_can_actually_be_the_base_image(tmp_path):
 
 def test_the_same_tile_twice_does_not_pile_up_copies(tmp_path):
     """同一张素材连着出两批：output 里只落一份，别每批复制一遍。"""
-    from tests.test_web_api import TickingEngine, _events, _post
+    from tests.test_web_api import TickingEngine, collect_events, post_json
 
     engine = TickingEngine()
     cfg, index = _pooled(tmp_path, stills=1)
@@ -583,12 +583,12 @@ def test_the_same_tile_twice_does_not_pile_up_copies(tmp_path):
 
     with _bench(cfg, engine) as base:
         for prompt in ("first", "second"):
-            status, body = _post(
+            status, body = post_json(
                 base + "/api/make",
                 {"prompt": prompt, "count": 1, "init_image": "asset:" + key},
             )
             assert status == 200, body
-            _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+            collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
 
     landed = [one.name for one in cfg.paths.output_dir.rglob("*.png")]
     assert len([name for name in landed if name.startswith("asset-")]) == 1, landed
@@ -596,13 +596,13 @@ def test_the_same_tile_twice_does_not_pile_up_copies(tmp_path):
 
 def test_a_key_the_index_does_not_know_is_refused_at_the_bench(tmp_path):
     """asset: 后面跟着一串索引里没有的东西：照索引认，不替你找文件。"""
-    from tests.test_web_api import TickingEngine, _post
+    from tests.test_web_api import TickingEngine, post_json
 
     engine = TickingEngine()
     cfg, _index = _pooled(tmp_path, stills=1)
 
     with _bench(cfg, engine) as base:
-        status, body = _post(
+        status, body = post_json(
             base + "/api/make",
             {"prompt": "x", "count": 1, "init_image": "asset:" + "0" * 40},
         )
@@ -618,19 +618,19 @@ def test_a_tile_that_was_made_into_a_picture_is_marked_used(tmp_path):
     它的路径，能对上号的只有副本名里那截 sha1。所以这条不能手造账：那种
     「把素材路径直接写进 source.image」的形状，真实流程根本产生不了。
     """
-    from tests.test_web_api import TickingEngine, _events, _post
+    from tests.test_web_api import TickingEngine, collect_events, post_json
 
     engine = TickingEngine()
     cfg, index = _pooled(tmp_path, stills=2)
     used, clean = pool.tiles(cfg, index)[:2]
 
     with _bench(cfg, engine) as base:
-        status, body = _post(
+        status, body = post_json(
             base + "/api/make",
             {"prompt": "x", "count": 1, "init_image": "asset:" + used.key},
         )
         assert status == 200, body
-        _events(base + f"/api/jobs/{body['job']}/events", stop="finished")
+        collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
 
         reopened, problem = pool.open_index(cfg)
         assert reopened is not None, problem

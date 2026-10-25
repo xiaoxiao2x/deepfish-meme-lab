@@ -1,8 +1,8 @@
 #!/bin/sh
-# 门禁：改完代码跑这个。五条都过才算过。
+# 门禁：改完代码跑这个。六条都过才算过。
 #
-#   ./scripts/check.sh         全跑（pytest / ruff / mypy / docs / js）
-#   ./scripts/check.sh ruff    只跑其中一项（pytest / ruff / mypy / docs / js）
+#   ./scripts/check.sh         全跑（pytest / ruff / mypy / docs / js / contracts）
+#   ./scripts/check.sh ruff    只跑其中一项（pytest / ruff / mypy / docs / js / contracts）
 #
 # 提交前会由 scripts/git-hooks/pre-commit 自动调一次；那次确实想跳过：
 #   SKIP_CHECKS=1 git commit ...
@@ -76,7 +76,7 @@ js_gate() {
 # ruff 同理不带路径：不带就是「扫这个仓库」，scripts/ 也在内。以前写死 `check lab tests`，
 # scripts/check_docs.py 里的 9 处超长行因此一直没人查 —— 而它自己还是门禁的一部分。
 if [ "$#" -eq 0 ]; then
-    set -- pytest ruff mypy docs js
+    set -- pytest ruff mypy docs js contracts
 fi
 
 for name in "$@"; do
@@ -86,8 +86,11 @@ for name in "$@"; do
         mypy)   step "mypy（类型检查）" mypy_gate ;;
         docs)   step "docs（文档与代码对账）" "$PY" scripts/check_docs.py ;;
         js)     step "js（浏览器那侧的语法）" js_gate ;;
+        contracts)
+            step "contracts（__all__ 与 import 对账）" "$PY" scripts/check_contracts.py
+            ;;
         *)
-            printf "不认识的门禁项：%s（可选 pytest / ruff / mypy / docs / js）\n" "$name" >&2
+            printf "不认识的门禁项：%s（可选 pytest / ruff / mypy / docs / js / contracts）\n" "$name" >&2
             exit 2
             ;;
     esac

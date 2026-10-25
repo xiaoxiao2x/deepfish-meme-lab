@@ -39,6 +39,7 @@ __all__ = [
     "find_by_title",
     "load",
     "missing_titles",
+    "model_name",
     "sticker_model",
 ]
 

@@ -96,7 +96,7 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 | `lab/pool.py` 的 `_was_used` / `_used` 两个私有函数，名字都带「用过」 | Mysterious Name，该合成一个 | 两个回答的是两个问题：`_used` 问「账上都有什么」（翻一遍两本账，贵），`_was_used` 问「这一张算不算」（纯比较，便宜）。瀑布流一次摆几百格，先把账翻一遍再逐格比；合成一个就得每格重翻一遍账。函数名在调用点旁边（`tiles` / `find_tile`），读起来不费解。 |
 | `lab/static/app.js` 的 `useBase(relative, label, preview)` 三个裸字符串 | Primitive Obsession，该合成一个对象 | 三样都是「底图这一栏要显示什么」：值进表单、名字进 `<p>`、地址进 `<img src>`。从素材库送来时三样都有，从成品库重跑时至少值必有 —— 合成对象只是把三次赋值挪进一个括号，读调用点的人还要多跳一次。真要改，该改的是「底图有两种来路」这件事本身，别从参数形状上下手。 |
 | `lab/web.py` 的 `asset_thumb` / `asset_file` **每个请求重读一遍索引** | 性能（415 张 = 415 次读盘） | 索引不进仓库、重扫一次就换一本，缓存要跟着失效，判失效比读一遍贵。实测一页 415 格 0.05 秒、单张缩略图 0.07 秒（含现缩），够快；真慢了先量再改，别按想象加缓存。命中率高的缓存是另一个话题（`functools.lru_cache` 挂在 `open_index` 上会与"重扫即换"打架）。 |
-| tests 没有 `conftest.py`，`_cfg` 在**八个文件各一份** | 测试公共设施缺失 | 八份钉的不是同一件事：`test_naming` 只挪 `output_dir`、`test_keeping` 连 `repo_root` 一起挪、`test_jobs` 还要把 `workflows/` 拷进 tmp、`test_lettering` 顺手换掉字体、`test_postprocess` 让调用方指定输出目录、`test_web` 干脆读真仓库。合成一份就得带六个可选开关，每加一票都牵动全部文件。**这条不再是「等以后合」，是已定的现状**：新文件照抄最接近的那一份，别为复用去改别人的 fixture。 |
+| tests 没有 `conftest.py`，`_cfg` 每个测试文件各一份 | 测试公共设施缺失 | 它们钉的不是同一件事：`test_naming` 只挪 `output_dir`、`test_keeping` 连 `repo_root` 一起挪、`test_jobs` 还要把 `workflows/` 拷进 tmp、`test_lettering` 顺手换掉字体、`test_postprocess` 让调用方指定输出目录、`test_web` 干脆读真仓库。合成一份就得带六个可选开关，每加一票都牵动全部文件。**这条不再是「等以后合」，是已定的现状**：新文件照抄最接近的那一份，别为复用去改别人的 fixture。 |
 
 **这条要反过来守**：新写测试**不要**再用 `Entry(**{**base.__dict__, **overrides})` 造变体 ——
 那是绕开 frozen dataclass 改字段，字段改名时会静默出错。用 `dataclasses.replace(base, seed=1)`。
@@ -106,11 +106,25 @@ keep 一张素材图就会往 schema 里写一个没人认识的阶段。
 
 - **`/code-review` 的 Standards 轴**：先按这一份判。命中第一节的直接算硬违规；命中第二节的，
   只在真的有新理由时才提，并在报告里说明「CODING_STANDARDS.md 第二节说了不改，但…」。
-- **`/implement` 收尾**：`./scripts/check.sh` 五条全绿是底线，不是全部。这份文件里的规矩
+- **`/implement` 收尾**：`./scripts/check.sh` 六条全绿是底线，不是全部。这份文件里的规矩
   门禁抓不到，得人看。
 - **新增 `lab/*.py`**：`scripts/check_docs.py` 会要求你进 `docs/design.md` §4 的架构树，或者在
   它 `OFF_TREE` 那张表里写一句「为什么它不是一层」—— 两个都行，但必须做一次决定。
 - **改 `Entry` 的字段**：`docs/design.md` §6.2 的键集与 `Entry.as_json()` 由门禁对齐，两处一起改。
+- **动模块的 `__all__`（加、删、改名）**：`./scripts/check.sh contracts` 对账三件事 —— 清单里列的名字
+  模块里真拿得出、`lab/` 内部 `from .某模块 import 某名字` 的那个名字在对方清单里、`tests/` 之间没
+  互相借带下划线的私有名。以前 `lab/pipeline.py` 从 `workflows` 借 `model_name` 借了很久，清单里
+  根本没有它，改一次 `workflows` 的对外说法就会静默崩在两个下游模块。**完成判据**：contracts 打印
+  「契约对得上」，且这次 diff 里 `__all__` 与真实定义同时改了。
+- **改完一处名字，先 `./scripts/check.sh ruff mypy`**。这两条加起来约 0.1 秒（实测 ruff 0.007、
+  mypy 0.10），比全量测试便宜两个数量级。`showcase.picture_at` 改名漏改一处调用点，`lab/web.py`
+  的缩略图路由撞了十六次 `AttributeError` 才被发现 —— 单跑这两条当场就红。挪函数、改签名、改常量名
+  之后同样先跑它。**完成判据**：两条门禁都打印「门禁过了」，且 `grep` 旧名字在仓库里零命中。
+- **凡碰账本或文件路径的 fixture，至少有一条测试真走 `/api/*` 端到端**。手造的条目用来钉分支，
+  端到端那条用来钉「真实流程写出来的账长什么样」：素材库 `?unused=1` 恒不过滤那次，根因正是三个
+  fixture 手造 `EntrySource(image=<素材原路径>)`，而真实链路写的是数据夹里的副本名 —— 静态检查与
+  手造数据都看不出来，两边各自自洽。**完成判据**：这票的测试文件里指得出一条真实请求（`post_json`
+  打 `/api/…` 或等价），它读的账由本进程跑出来，不是 fixture 拼的。
 
 ## 四、工具链的下界
 

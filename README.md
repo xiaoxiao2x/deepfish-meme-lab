@@ -50,16 +50,20 @@ python3 -m venv .venv
 .venv/bin/pip install fastapi uvicorn jinja2 pytest Pillow ruff mypy
 ```
 
-改完代码跑门禁 —— 五条都过才算过：
+改完代码跑门禁 —— 六条都过才算过：
 
 ```bash
-./scripts/check.sh          # pytest + ruff + mypy + docs + js
+./scripts/check.sh          # pytest + ruff + mypy + docs + js + contracts
 ./scripts/check.sh ruff     # 只跑其中一条
 ```
 
-最后那条 `js` 用 `node --check` 把 `lab/static/*.js` 解析一遍 —— 这一侧没有构建
-步骤，也没有测试会执行它，写错一个括号时前四条照样全绿。node 不是项目依赖，没装的
-机器上打印一行跳过。
+`js` 那条用 `node --check` 把 `lab/static/*.js` 解析一遍 —— 这一侧没有构建步骤，也没有
+测试会执行它，写错一个括号时前几条照样全绿。node 不是项目依赖，没装的机器上打印一行跳过。
+
+`contracts` 那条（`scripts/check_contracts.py`）对账 `__all__` 这份对外说法：清单里列的
+名字模块里拿得出、`lab/` 内部跨模块 import 的名字在对方清单里、`tests/` 之间没互相借带下划
+线的私有名。纯 AST，几毫秒。`__all__` 原先没有任何东西在守 —— `lab/pipeline.py` 从
+`workflows` 借 `model_name` 借了很久，清单里根本没有它。
 
 `scripts/git-hooks/pre-commit` 会在提交前自动调一遍，每个克隆装一次：
 `git config core.hooksPath scripts/git-hooks`；某次确实想跳过：`SKIP_CHECKS=1 git commit ...`。

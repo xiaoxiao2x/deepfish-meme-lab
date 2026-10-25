@@ -208,9 +208,9 @@ def test_a_card_says_whether_its_picture_is_still_there(tmp_path):
 def _http(cfg, *, opener=None):
     """真起一次服务 —— 判据要的是"页面上看得见"，只比路由表证明不了。"""
     from lab.web import create_app
-    from tests.test_web_api import _serving
+    from tests.test_web_api import run_server
 
-    return _serving(create_app(cfg, opener=opener))
+    return run_server(create_app(cfg, opener=opener))
 
 
 def _page(base: str, path: str) -> tuple[int, str]:
