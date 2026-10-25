@@ -278,7 +278,8 @@ def test_make_runs_the_batch_and_tells_the_page_each_step(tmp_path):
         events = collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
     kinds = [event["type"] for event in events]
     assert kinds == ["spec", "start", "done", "start", "done", "finished"], kinds
-    assert events[0]["prompt"] == "chibi blue whale girl"
+    # 骨架是配置的一部分（spec_for 负责拼），页面送来的原话一个字都不能丢
+    assert events[0]["prompt"] == f"{cfg.generate.prompt_prefix}chibi blue whale girl"
     assert events[0]["base"] == "", "纯文生图没有底图"
     assert events[0]["denoise"] is None
     assert events[-1]["made"] == 2
@@ -309,7 +310,7 @@ def test_a_job_says_which_recipe_its_pictures_came_from(tmp_path):
         events = collect_events(base + f"/api/jobs/{body['job']}/events", stop="finished")
     spec = events[0]
     assert spec["type"] == "spec"
-    assert spec["prompt"] == "same girl, another mood"
+    assert spec["prompt"] == f"{cfg.generate.prompt_prefix}same girl, another mood"
     assert spec["base"] == "2026-10-23/fish-001.orig.png"
     assert spec["denoise"] == 0.4
 
