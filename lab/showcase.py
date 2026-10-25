@@ -1,7 +1,7 @@
 """成品库那一页要的东西：配方摊成卡片、按日期分组、按关键词筛。
 
 这一层只做"摊开与筛"，不碰页面也不碰 HTTP —— 缩略图怎么缩在
-`lab.showcase.thumb_bytes`，页面怎么摆是 `lab.web` 的事，配方从哪来是
+`lab.thumbs`，页面怎么摆是 `lab.web` 的事，配方从哪来是
 `lab.keeping.gallery` 的事。分成三处的理由与 naming / paths 一样：同一个问题
 只回答一次，"哪张是旧的那张""它属于哪一天"才不会在两处各算一遍。
 
@@ -14,10 +14,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from . import thumbs
 from .config import Config
 from .keeping import IMPORTED_KIND, gallery
 from .recording import resolve_recorded
@@ -36,31 +36,18 @@ __all__ = [
     "thumb_bytes",
 ]
 
-#: 卡片那一档：240 CSS 像素宽，按 2 倍屏算。
-THUMB_WIDTH = 480
+#: 卡片那一档：240 CSS 像素宽，按 2 倍屏算（尺子只有一把，在 lab/thumbs.py）。
+THUMB_WIDTH = thumbs.WIDTH
 
 
 def thumb_bytes(path: Path) -> bytes:
     """把这张成品缩到卡片那一档，回 PNG 字节。
 
-    只缩不放大 —— 比卡片还小的图（拷进来的外来图）保持原样，放大只是把模糊
-    摊开。带透明区的贴纸照着缩，不垫白底：去背后那张的透明就是它的成品形态。
+    缩法只有一份（lab/thumbs.py）：只缩不放大 —— 比卡片还小的图（拷进来的
+    外来图）保持原样，放大只是把模糊摊开。带透明区的贴纸照着缩，不垫白底：
+    去背后那张的透明就是它的成品形态。
     """
-    from PIL import Image
-
-    try:
-        with Image.open(path) as opened:
-            image = opened.copy()
-    except (OSError, ValueError) as exc:
-        raise ValueError(f"这张缩不出来：{Path(path).name} —— {exc}") from None
-
-    if image.width > THUMB_WIDTH:
-        height = max(1, round(image.height * THUMB_WIDTH / image.width))
-        image = image.resize((THUMB_WIDTH, height), Image.Resampling.LANCZOS)
-
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
+    return thumbs.to_png(path)
 
 
 @dataclass(frozen=True)

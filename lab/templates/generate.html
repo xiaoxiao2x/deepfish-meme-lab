@@ -14,7 +14,7 @@
     <form class="knobs" id="knobs">
       {% if fill_error %}<p class="progress bad" id="fill-error">{{ fill_error }}</p>{% endif %}
       {% if fill %}
-      <p class="muted" id="fill-recipe">照配方填好了：{{ fill.model or "这条没记模型" }} · {{ fill.steps }} 步 —— 模型与步数不在下面这几栏里，换个模型去配置里改，出片时照旧按配置走。</p>
+      <p class="muted" id="fill-recipe">{{ fill.note }}</p>
       {% endif %}
       <label>台词
         <textarea name="prompt" rows="3" placeholder="摸鱼中，勿扰">{{ fill.prompt if fill else "" }}</textarea>
@@ -36,7 +36,9 @@
           <p class="muted">留空就是纯文生图 —— 每次都会换一张脸</p>
         </div>
         <input type="file" id="base-file" accept="image/png,image/jpeg,image/webp" hidden>
-        <div class="base-on" id="base-on" data-base="{{ fill.base if fill else '' }}" hidden>
+        <div class="base-on" id="base-on" data-base="{{ fill.base if fill else '' }}"
+             data-label="{{ fill.base_label if fill else '' }}"
+             data-preview="{{ fill.base_preview if fill else '' }}" hidden>
           <img class="thumb" id="base-preview" alt="选中的底图">
           <div class="base-knobs">
             <p id="base-name" class="muted"></p>

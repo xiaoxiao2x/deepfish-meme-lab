@@ -27,6 +27,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import jinja2
 from fastapi import FastAPI, Request
@@ -41,7 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from . import showcase
+from . import pool, showcase
 from .comfy import EngineClient, EngineError, EngineLike
 from .config import Config
 from .jobs import Job, JobBoard
@@ -52,6 +53,7 @@ from .recording import resolve_recorded
 from .registry import Entry
 
 __all__ = [
+    "ASSET_MOUNT",
     "PAGES",
     "STATIC_DIR",
     "TEMPLATES_DIR",
@@ -79,6 +81,13 @@ THUMB_MOUNT = "/thumb"
 
 #: 当天的全量记录里那一条，原样摊成 JSON。
 RECORD_MOUNT = "/record"
+
+#: 素材库里的图：缩略图与原件都挂在这儿。素材不在 output 里，所以另开一个前缀。
+ASSET_MOUNT = "/asset"
+
+#: 底图那一栏里指着素材库的写法。素材得先落进 output 才能喂给引擎，
+#: 所以它是一个"待落地"的地址，不是一个能直接读的路径。
+ASSET_PREFIX = "asset:"
 
 #: 页面调的那些接口都挂在这儿。
 API_PREFIX = "/api"
@@ -251,6 +260,41 @@ def _output_image(config: Config, raw: str) -> Path:
     return candidate
 
 
+def _asset_base(config: Config, key: str) -> Path:
+    """把 asset:<sha1> 落成 output 里的一份副本 —— 引擎只读得懂 output 里的图。
+
+    素材是引用：原件一个字节都不动，复制一份进当天的目录，名字照 sha1 定死，
+    同一张素材反复送进来只落一次。
+    """
+    index, problem = pool.open_index(config)
+    if index is None:
+        raise ValueError(problem)
+    try:
+        asset = pool.find_asset(index, key)
+    except ValueError:
+        raise ValueError(
+            f"索引里没有 {key} 这一张 —— 从素材库挑一张，或者{pool.SCAN_HINT}。"
+        ) from None
+    folder = daily_dir(Path(config.paths.output_dir))
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / pool.copy_name(asset)
+    if not target.is_file():
+        target.write_bytes(asset.path.read_bytes())
+    return target
+
+
+def _base_from(config: Config, raw: str) -> Path:
+    """底图那一栏送来的两样东西：output 里的相对路径，或者 asset:<sha1>。"""
+    if raw.startswith(ASSET_PREFIX):
+        return _asset_base(config, raw[len(ASSET_PREFIX) :])
+    try:
+        return _output_image(config, raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"底图不在 output 里：{raw} —— 从素材库挑一张，或先出一张当底。"
+        ) from exc
+
+
 def _check_make(config: Config, payload: MakeRequest) -> int:
     """先看懂页面送来的表单：说不通就当场抛，通过就回这次要出几张。
 
@@ -366,17 +410,23 @@ def _open_folder(folder: Path) -> bool:
 class Prefill:
     """照配方回填出片台的那几栏，外加一句交代。
 
-    台词、种子、底图、重绘强度是真能填回去的；模型与步数出片台没有对应的栏
-    （它们在 config 与工作流模板里），所以只念一遍让照配方的人知道这一张当初
-    是怎么出的 —— 回填不进去的东西，说清楚比装作没有强。
+    两个来源共用这一种形状：配方库里的那一条（「用同参数重跑」），和素材库里
+    被送去当底图的那一张。台词、种子、底图、重绘强度是真填回去的；模型与步数
+    出片台没有对应的栏（它们在 config 与工作流模板里），所以只写进 `note` 让人
+    知道这一张当初是怎么出的 —— 回填不进去的东西，说清楚比装作没有强。
+
+    `base` 是提交给接口的那个值（`asset:...` 或相对 output 的路径），
+    `base_preview` 是浏览器拿它画预览的地址，两者可以不是一个东西：素材不在
+    output 里，`/images` 那个前缀读不到它。
     """
 
     prompt: str
     seed: str
     base: str
     denoise: str
-    model: str
-    steps: str
+    note: str
+    base_label: str = ""
+    base_preview: str = ""
 
 
 def _no_such_recipe(raw: str) -> str:
@@ -414,8 +464,40 @@ def _prefill(config: Config, raw: str) -> tuple[Prefill | None, str]:
             seed=str(entry.seed),
             base=base,
             denoise=denoise,
-            model=entry.model,
-            steps=str(entry.steps),
+            note=(
+                f"照配方填好了：{entry.model or '这条没记模型'} · {entry.steps} 步"
+                " —— 模型与步数不在下面这几栏里，换个模型去配置里改，出片时照旧按配置走。"
+            ),
+        ),
+        "",
+    )
+
+
+def _from_asset(config: Config, raw: str) -> tuple[Prefill | None, str]:
+    """把素材库送去的那一串（内容哈希）翻成出片台的初值。
+
+    和「用同参数重跑」走同一条回填路径、同一个形状 —— 页面不该关心初值是从
+    哪条路来的。翻不出来（索引换了、那张被删了）不抛：出片台是主页面，跟着
+    一条过期链接进来也该照样开着。
+    """
+    if not raw.strip():
+        return None, ""
+    index, problem = pool.open_index(config)
+    if index is None:
+        return None, problem
+    try:
+        tile = pool.find_tile(config, index, raw)
+    except ValueError as exc:
+        return None, str(exc)
+    return (
+        Prefill(
+            prompt="",
+            seed="",
+            base=f"{ASSET_PREFIX}{tile.key}",
+            denoise=f"{config.generate.denoise:g}",
+            note=f"底图选自素材库：{tile.name} —— 台词与种子还空着，想照上次的样子出就自己补上。",
+            base_label=tile.name,
+            base_preview=f"{ASSET_MOUNT}/{tile.key}/{tile.name}",
         ),
         "",
     )
@@ -442,9 +524,57 @@ def _page_extra(page: Page, request: Request, config: Config) -> dict[str, Any]:
             "generate_path": GENERATE_PATH,
         }
     if page.key == "generate":
+        # 两条路把东西送来出片台：成品库的「用同参数重跑」与素材库的「送去出片台」。
+        # 同一时刻只可能有一串，先问成品库那串，空着再问素材库那串。
         fill, error = _prefill(config, request.query_params.get("from", ""))
+        if fill is None and not error:
+            fill, error = _from_asset(config, request.query_params.get("from-asset", ""))
         return {"fill": fill, "fill_error": error}
+    if page.key == "assets":
+        return _asset_page(request, config)
     return {}
+
+
+def _asset_page(request: Request, config: Config) -> dict[str, Any]:
+    """素材库那一页要的全部东西：墙、批次清单、三个筛选的现状、要不要开大图。
+
+    筛选与分栏都在 pool 里算，这里只把查询串翻开递过去 —— 页面拿到的永远是
+    「已经筛过的那些格子」，它自己不做判断。
+    """
+    params = request.query_params
+    kind = params.get("kind", "")
+    batch = params.get("batch", "")
+    unused = bool(params.get("unused", ""))
+    opened = params.get("open", "")
+    # 「收起来」要回到原样的筛选：拼查询串这件事在这儿做，页面只管把它贴到 href 上。
+    keep = [("kind", kind), ("batch", batch)] + ([("unused", "1")] if unused else [])
+    keep_query = "&".join(f"{key}={quote(value)}" for key, value in keep if value)
+    index, problem = pool.open_index(config)
+    wall: list[pool.Tile] = []
+    sources: list[pool.Batch] = []
+    big: pool.Tile | None = None
+    if index is not None:
+        every = pool.tiles(config, index)
+        sources = pool.batches(every)
+        wall = pool.sift(every, kind=kind, batch=batch, unused=unused)
+        if opened.strip():
+            try:
+                big = pool.find_tile(config, index, opened)
+            except ValueError:
+                big = None
+    return {
+        "tiles": wall,
+        "sources": sources,
+        "kind": kind,
+        "batch": batch,
+        "unused": unused,
+        "keep_query": keep_query,
+        "big": big,
+        "index_error": problem,
+        "asset_mount": ASSET_MOUNT,
+        "kinds": pool.KIND_LABELS,
+        "generate_path": GENERATE_PATH,
+    }
 
 
 def _page_handler(
@@ -550,6 +680,41 @@ def create_app(
             return JSONResponse({"message": str(exc)}, status_code=404)
         return JSONResponse(body)
 
+    @app.get(f"{ASSET_MOUNT}/thumb/{{key}}.png", name="asset-thumb")
+    def asset_thumb(key: str) -> Any:
+        """素材的缩略图：照索引现缩，缩不出来就是 404。
+
+        索引每次现读，不在这里攒缓存：索引不进仓库、重扫一次就换一本，缓存要
+        跟着失效，判失效比读一遍贵。缩略图是只读的 —— 这一条路由写不了素材。
+        """
+        index, _problem = pool.open_index(config)
+        if index is None:
+            return Response(status_code=404)
+        try:
+            asset = pool.find_asset(index, key)
+            raw = pool.thumb_bytes(asset.path)
+        except ValueError:
+            return Response(status_code=404)
+        return Response(content=raw, media_type="image/png")
+
+    @app.get(f"{ASSET_MOUNT}/{{key}}/{{name}}", name="asset")
+    def asset_file(key: str, name: str) -> Any:
+        """素材的原件：大图那一页要的就是它，字节一个字不改。
+
+        文件名也得对上 —— 只有内容哈希是通行证，但地址里那半截名字若对不上，
+        说明这一串本来就不是从这一页拿的，不必替它找。
+        """
+        index, _problem = pool.open_index(config)
+        if index is None:
+            return Response(status_code=404)
+        try:
+            asset = pool.find_asset(index, key)
+        except ValueError:
+            return Response(status_code=404)
+        if asset.path.name != name:
+            return Response(status_code=404)
+        return FileResponse(asset.path)
+
     @app.get(f"{API_PREFIX}/engine", name="engine-state")
     def engine_state() -> dict[str, Any]:
         return _engine_state(config, client)
@@ -578,13 +743,7 @@ def create_app(
         count = _check_make(config, payload)
         base: Path | None = None
         if payload.init_image:
-            try:
-                base = _output_image(config, payload.init_image)
-            except ValueError as exc:
-                raise ValueError(
-                    f"底图不在 output 里：{payload.init_image}"
-                    " —— 从素材库挑一张，或先出一张当底。"
-                ) from exc
+            base = _base_from(config, payload.init_image)
         spec = spec_for(
             config,
             prompt=payload.prompt,

@@ -3,6 +3,69 @@
 <section class="panel">
   <h2>{{ page.title }}</h2>
   <p>素材池那一批图，挑一张送去出片台当底图。</p>
+
+  {% if index_error %}
+  <p class="progress bad" id="index-error">{{ index_error }}</p>
+  {% else %}
+  <form class="filters" id="filters" method="get" action="{{ page.path }}">
+    <label>来源批次
+      <select name="batch">
+        <option value="">全部</option>
+        {% for source in sources %}
+        <option value="{{ source.path }}"{% if source.path == batch %} selected{% endif %}>{{ source.name }}（{{ source.count }}）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>静图还是动图
+      <select name="kind">
+        <option value="">都看</option>
+        {% for value, label in kinds %}
+        <option value="{{ value }}"{% if value == kind %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="check">
+      <input type="checkbox" name="unused" value="1"{% if unused %} checked{% endif %}>
+      只看没用过的
+    </label>
+    <button type="submit">筛一下</button>
+    {% if kind or batch or unused %}
+    <a class="link" href="{{ page.path }}">不过滤了</a>
+    {% endif %}
+  </form>
+
+  <p class="muted" id="pool-count">{{ tiles | length }} 张</p>
+
+  {% if big %}
+  <div class="big" id="big">
+    <img src="{{ asset_mount }}/{{ big.key }}/{{ big.name }}" alt="{{ big.name }}">
+    <div class="big-acts">
+      <p id="big-name">{{ big.name }}</p>
+      <p class="muted">{{ big.asset.root.name }} · {{ big.asset.width }} × {{ big.asset.height }}</p>
+      <a class="send" href="{{ generate_path }}?from-asset={{ big.key }}">设为底图</a>
+      <a class="link" href="{{ page.path }}{% if keep_query %}?{{ keep_query }}{% endif %}">收起来</a>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="wall" id="wall">
+    {% for tile in tiles %}
+    <figure class="tile" data-key="{{ tile.key }}">
+      <a href="{{ page.path }}?open={{ tile.key }}" title="{{ tile.name }}">
+        <img loading="lazy" src="{{ asset_mount }}/thumb/{{ tile.key }}.png" alt="{{ tile.name }}">
+      </a>
+      <figcaption>
+        <span class="name">{{ tile.name }}</span>
+        <a class="send" href="{{ generate_path }}?from-asset={{ tile.key }}">送去出片台</a>
+        {% if tile.used %}<span class="used">用过</span>{% endif %}
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+
+  {% if not tiles %}
+  <p class="placeholder" id="empty">这一组筛选下没有图 —— 换个批次，或者把「只看没用过的」放开。</p>
+  {% endif %}
+  {% endif %}
 </section>
-<section class="placeholder">瀑布流与筛选（M5.4）</section>
 {% endblock %}

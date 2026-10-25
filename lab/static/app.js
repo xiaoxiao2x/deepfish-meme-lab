@@ -36,7 +36,7 @@
 
   // ---------- 底图：拖进来、或者点一下挑一张 ----------
 
-  let base = null; // 选中的底图（相对 output 的路径）
+  let base = null; // 选中的底图：相对 output 的路径，或者 asset:<sha1>
 
   const drop = $("drop");
   const baseOn = $("base-on");
@@ -44,12 +44,16 @@
   const basePreview = $("base-preview");
   const denoise = $("denoise");
 
-  function useBase(relative) {
+  // 底图有两种来路：output 里的一张（服务器照 /images 递过来），或者素材库
+  // 里的一张（服务器给的是 /asset/<sha1>/<名字>，因为素材不在 output 里）。
+  // 后者在提交时就叫 asset:<sha1>，由服务器自己把它落进 output 再喂引擎 ——
+  // 浏览器不搬字节，省一趟上传。
+  function useBase(relative, label, preview) {
     base = relative;
     drop.hidden = true;
     baseOn.hidden = false;
-    baseName.textContent = relative;
-    basePreview.src = IMAGES + "/" + relative;
+    baseName.textContent = label || relative;
+    basePreview.src = preview || IMAGES + "/" + relative;
   }
 
   function dropBase() {
@@ -67,7 +71,7 @@
   // 从成品库点「用同参数重跑」跳回来时，底图也跟着回填：模板把那一截挂在
   // #base-on 的 data-base 上，没带 from 就是空串，页面照旧是一张白纸。
   if (baseOn.dataset.base) {
-    useBase(baseOn.dataset.base);
+    useBase(baseOn.dataset.base, baseOn.dataset.label, baseOn.dataset.preview);
     say("照配方填好了 —— 台词、种子、底图都在这儿，改哪一样都行。");
   }
 

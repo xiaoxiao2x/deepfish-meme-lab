@@ -315,3 +315,136 @@ button.link {
   color: var(--muted);
   cursor: default;
 }
+
+/* ---------- 素材库（M5.4）：筛选条、瀑布流、大图 ---------- */
+
+.filters {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 14px 0 10px;
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* 复选框那一格横着摆：勾在一行里，别把字挤到框下面去。 */
+.filters label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+
+.filters select {
+  font: inherit;
+  color: var(--ink);
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+/* 瀑布流：先按列铺，图片各自撑高，长短不齐也不留横沟。
+   column-width 让列数跟着窗口自己长，不写死媒体查询。 */
+.wall {
+  columns: 220px;
+  column-gap: 14px;
+}
+
+.tile {
+  margin: 0 0 14px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  break-inside: avoid;
+}
+
+.tile a { display: block; }
+
+.tile img {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.tile figcaption {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* 名字长了就省略：一格 220px，全名会把「送去出片台」挤到第二行。 */
+.tile .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile .send {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* 「送去出片台」平时藏着：一格才 220px，常显的链接会把名字挤成半截。
+   悬停、或键盘 Tab 走到它才露 —— 用不透明度而不是 display，所以它一直在
+   可访问树里、Tab 也走得到。触屏没有 hover，这一段不生效，链接一直显着。 */
+@media (hover: hover) {
+  .tile .send {
+    opacity: 0;
+    transition: opacity 0.12s ease-out;
+  }
+
+  .tile:hover .send,
+  .tile:focus-within .send {
+    opacity: 1;
+  }
+}
+
+.tile .used {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.big {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.big img {
+  width: auto;
+  max-width: min(420px, 100%);
+  max-height: 420px;
+  border-radius: 4px;
+}
+
+.big-acts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.big-acts p { margin: 0; }
+.big-acts .send { color: var(--accent); }
+
